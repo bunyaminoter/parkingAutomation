@@ -1,6 +1,6 @@
 body {
   font-family: 'Segoe UI', sans-serif;
-  background: #f6f8fa;
+  background: #00114c;
   margin: 0;
   padding: 0;
 }
@@ -9,7 +9,7 @@ body {
   max-width: 1100px;
   margin: 40px auto;
   padding: 20px;
-  background: white;
+  background: #ffffff;
   border-radius: 12px;
   box-shadow: 0 0 10px rgba(0,0,0,0.1);
 }

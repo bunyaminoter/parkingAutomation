@@ -17,7 +17,7 @@ cd frontend
 
 ## 🚀 Özellikler
 
-- **Plaka Tanıma**: Resim ve video dosyalarından otomatik plaka tanıma
+- **Plaka Tanıma**: Resim ve Kameralardan otomatik plaka tanıma
 - **Manuel Giriş**: Plaka numarası ile manuel park kaydı oluşturma
 - **Çıkış İşlemi**: Park kayıtlarını tamamlama
 - **Kayıt Yönetimi**: Tüm park kayıtlarını görüntüleme ve yönetme
@@ -102,10 +102,9 @@ npm run dev
 
 ### Dosya Yükleme
 - `POST /api/upload/image` - Resimden plaka tanıma
-- `POST /api/upload/video` - Videodan plaka tanıma
 
 ### Sistem
-- `GET /api/health` - Sistem durumu
+- `GET /api/health` - Sistem durumu (API Bağlantısı)
 
 ## 🚀 Kullanım
 

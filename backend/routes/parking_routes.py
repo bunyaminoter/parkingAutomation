@@ -39,6 +39,7 @@ def create_record(record: schemas.ParkingRecordCreate, db: Session = Depends(get
 
 @router.put("/parking_records/{record_id}/exit", response_model=schemas.ParkingRecordResponse)
 def complete_record(record_id: int, fee: float | None = None, db: Session = Depends(get_db)):
+    # fee=None olduğunda otomatik hesaplama yapılacak
     updated = crud.update_exit_time(db, record_id, fee=fee)
     if not updated:
         raise HTTPException(status_code=404, detail="Record not found")

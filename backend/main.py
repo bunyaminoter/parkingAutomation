@@ -137,39 +137,6 @@ def upload_image(file: UploadFile = File(...), db: Session = Depends(get_db)):
     }
 
 # --------------------------------------------------
-# 🔹 Plaka tanıma için video yükleme
-# --------------------------------------------------
-@app.post("/api/upload/video")
-def upload_video(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    try:
-        # Plaka tanıma servisini kullan
-        from backend.services.plate_recognition import recognize_plate_from_video
-        content = file.file.read()
-        plate_number = recognize_plate_from_video(content)
-        
-        if not plate_number:
-            raise HTTPException(status_code=400, detail="Plaka tanınamadı")
-        
-        # Park kaydı oluştur
-        record = models.ParkingRecord(
-            plate_number=plate_number,
-            entry_time=datetime.utcnow()
-        )
-        db.add(record)
-        db.commit()
-        db.refresh(record)
-        
-        return {
-            "id": record.id,
-            "plate_number": record.plate_number,
-            "entry_time": record.entry_time,
-            "exit_time": record.exit_time,
-            "fee": record.fee
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Video işleme hatası: {str(e)}")
-
-# --------------------------------------------------
 # 🔹 Tüm park kayıtlarını listeleme
 # --------------------------------------------------
 @app.get("/api/parking_records")
@@ -192,7 +159,7 @@ def get_parking_records(db: Session = Depends(get_db)):
 @app.put("/api/parking_records/{record_id}/exit")
 def complete_parking_record(
     record_id: int, 
-    fee: float = 0.0,
+    fee: float = None,
     db: Session = Depends(get_db)
 ):
     record = db.query(models.ParkingRecord).filter(models.ParkingRecord.id == record_id).first()
@@ -202,8 +169,21 @@ def complete_parking_record(
     if record.exit_time:
         raise HTTPException(status_code=400, detail="Bu kayıt zaten tamamlanmış")
     
-    record.exit_time = datetime.utcnow()
-    record.fee = fee
+    # Çıkış zamanını ayarla
+    exit_time = datetime.utcnow()
+    record.exit_time = exit_time
+    
+    # Eğer fee belirtilmemişse, otomatik hesapla
+    if fee is None:
+        # Zaman farkını hesapla
+        time_diff = exit_time - record.entry_time
+        total_minutes = round(time_diff.total_seconds() / 60)
+        fee_per_minute = 2.0
+        calculated_fee = max(total_minutes * fee_per_minute, 2.0)  # Minimum 2 TL
+        record.fee = calculated_fee
+    else:
+        record.fee = fee
+    
     db.commit()
     db.refresh(record)
     

@@ -28,8 +28,8 @@ export default function RecordsTable({ refreshKey, onRefresh }) {
     try {
       await fetchJSON(API.base + API.completeRecord(recordId), {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fee: 0 })
+        headers: { "Content-Type": "application/json" }
+        // fee göndermiyoruz, backend otomatik hesaplayacak
       });
       onRefresh?.();
     } catch (err) {
