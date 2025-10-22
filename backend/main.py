@@ -7,6 +7,7 @@ from sqlalchemy import text
 from datetime import datetime
 import shutil
 import os
+import hashlib
 from backend.services.plate_recognition import recognize_plate_from_bytes
 from backend.database import SessionLocal, engine
 from backend import models
@@ -54,6 +55,72 @@ def health_check(db: Session = Depends(get_db)):
         return {"status": "healthy", "database": "connected"}
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Database connection failed: {str(e)}")
+
+# --------------------------------------------------
+# 🔹 Authentication endpoints
+# --------------------------------------------------
+@app.post("/api/login")
+def login(
+    username: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    """Admin girişi"""
+    # Şifreyi hash'le
+    hashed_password = hashlib.md5(password.encode()).hexdigest()
+    
+    # Kullanıcıyı kontrol et
+    user = db.query(models.User).filter(
+        models.User.username == username,
+        models.User.password == hashed_password
+    ).first()
+    
+    if not user:
+        raise HTTPException(status_code=401, detail="Geçersiz kullanıcı adı veya şifre")
+    
+    return {
+        "success": True,
+        "message": "Giriş başarılı",
+        "user": {
+            "id": user.id,
+            "username": user.username
+        }
+    }
+
+@app.get("/api/user_login")
+def user_login():
+    """Kullanıcı girişi (şifre gerektirmez)"""
+    return {
+        "success": True,
+        "message": "Kullanıcı girişi başarılı",
+        "user_type": "user"
+    }
+
+# --------------------------------------------------
+# 🔹 Kullanıcı sayfası için sadece plaka algılama
+# --------------------------------------------------
+@app.post("/api/user/recognize_plate")
+def user_recognize_plate(file: UploadFile = File(...)):
+    """Kullanıcı sayfası için sadece plaka tanıma (veritabanına kaydetmez)"""
+    # 1) Dosya içeriğini oku
+    try:
+        content = file.file.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="Boş dosya gönderildi")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Dosya okunamadı: {str(e)}")
+
+    # 2) Plaka tanımaya gönder
+    plate, conf = recognize_plate_from_bytes(content, lang_list=["tr","en"], gpu=False)
+
+    if not plate:
+        raise HTTPException(status_code=400, detail="Plaka tanınamadı")
+
+    return {
+        "plate_number": plate,
+        "confidence": conf,
+        "message": "Plaka başarıyla tanındı"
+    }
 
 # --------------------------------------------------
 # 🔹 Manuel plaka girişi (sadece plaka)
