@@ -1,41 +1,95 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import API from "../api";
 import { fetchJSON } from "../utils";
 
-export default function RecordsTable({ refreshKey, onRefresh }) {
+export default function RecordsTable({ forceRefreshKey = 0 }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [socketState, setSocketState] = useState("connecting");
   const [completing, setCompleting] = useState(new Set());
+  const reconnectTimer = useRef();
+
+  const wsUrl = useMemo(() => {
+    const base = API.wsBase || API.base.replace(/^http/, "ws");
+    return base + API.recordsStream;
+  }, []);
+
+  const fetchLatest = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await fetchJSON(API.base + API.getRecords);
+      setRows(data);
+      setError("");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const data = await fetchJSON(API.base + API.getRecords);
-        if (!cancelled) setRows(data);
-      } catch (err) {
-        if (!cancelled) setError(err.message);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [refreshKey]);
+    let ws;
+
+    const connect = () => {
+      setSocketState("connecting");
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        setSocketState("connected");
+        fetchLatest();
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload?.type === "records" && Array.isArray(payload.payload)) {
+            setRows(payload.payload);
+            setLoading(false);
+            setError("");
+          }
+        } catch (err) {
+          console.error("WebSocket parse error:", err);
+        }
+      };
+
+      ws.onerror = () => {
+        setSocketState("error");
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.close();
+        }
+      };
+
+      ws.onclose = () => {
+        setSocketState("disconnected");
+        reconnectTimer.current = setTimeout(connect, 3000);
+      };
+    };
+
+    connect();
+
+    return () => {
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+    };
+  }, [wsUrl, fetchLatest]);
+
+  useEffect(() => {
+    fetchLatest();
+  }, [fetchLatest, forceRefreshKey]);
 
   const handleComplete = async (recordId) => {
-    setCompleting(prev => new Set(prev).add(recordId));
+    setCompleting((prev) => new Set(prev).add(recordId));
     try {
       await fetchJSON(API.base + API.completeRecord(recordId), {
         method: "PUT",
         headers: { "Content-Type": "application/json" }
-        // fee göndermiyoruz, backend otomatik hesaplayacak
       });
-      onRefresh?.();
+      await fetchLatest();
     } catch (err) {
       setError(err.message);
     } finally {
-      setCompleting(prev => {
+      setCompleting((prev) => {
         const newSet = new Set(prev);
         newSet.delete(recordId);
         return newSet;
@@ -43,9 +97,31 @@ export default function RecordsTable({ refreshKey, onRefresh }) {
     }
   };
 
+  const statusText = {
+    connecting: "Canlı bağlantı kuruluyor...",
+    connected: "Canlı veri",
+    disconnected: "Bağlantı koptu, yeniden deneniyor...",
+    error: "WebSocket hatası",
+  }[socketState] || "";
+
   return (
     <div className="card">
-      <h2>Park Kayıtları</h2>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: "12px",
+        }}
+      >
+        <h2>Park Kayıtları</h2>
+        <span
+          className="muted"
+          style={{ color: socketState === "connected" ? "#28a745" : undefined }}
+        >
+          {statusText}
+        </span>
+      </div>
       {loading ? (
         <p className="muted">Yükleniyor...</p>
       ) : (

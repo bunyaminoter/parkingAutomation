@@ -1,13 +1,24 @@
-from fastapi import FastAPI, Form, UploadFile, File, Depends, HTTPException
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from datetime import datetime
-import shutil
 import os
 import hashlib
+from typing import Set
 from backend.services.plate_recognition import recognize_plate_from_bytes
 from backend.database import SessionLocal, engine
 from backend import models
@@ -43,6 +54,66 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def serialize_record(record: models.ParkingRecord):
+    return jsonable_encoder(
+        {
+            "id": record.id,
+            "plate_number": record.plate_number,
+            "entry_time": record.entry_time,
+            "exit_time": record.exit_time,
+            "fee": record.fee,
+        }
+    )
+
+
+def get_serialized_records(db: Session):
+    records = db.query(models.ParkingRecord).order_by(models.ParkingRecord.entry_time.desc()).all()
+    return [serialize_record(r) for r in records]
+
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: Set[WebSocket] = set()
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.add(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.discard(websocket)
+
+    async def broadcast(self, message: dict):
+        to_remove = []
+        for connection in list(self.active_connections):
+            try:
+                await connection.send_json(message)
+            except Exception:
+                to_remove.append(connection)
+        for connection in to_remove:
+            self.disconnect(connection)
+
+
+manager = ConnectionManager()
+
+
+async def broadcast_latest_records():
+    db = SessionLocal()
+    try:
+        payload = get_serialized_records(db)
+    finally:
+        db.close()
+    await manager.broadcast({"type": "records", "payload": payload})
+
+
+async def send_initial_snapshot(websocket: WebSocket):
+    db = SessionLocal()
+    try:
+        payload = get_serialized_records(db)
+    finally:
+        db.close()
+    await websocket.send_json({"type": "records", "payload": payload})
 
 # --------------------------------------------------
 # 🔹 Health check endpoint
@@ -127,6 +198,7 @@ def user_recognize_plate(file: UploadFile = File(...)):
 # --------------------------------------------------
 @app.post("/api/manual_entry")
 def manual_entry(
+    background_tasks: BackgroundTasks,
     plate_number: str = Form(...),
     db: Session = Depends(get_db)
 ):
@@ -138,6 +210,9 @@ def manual_entry(
     db.add(record)
     db.commit()
     db.refresh(record)
+
+    if background_tasks:
+        background_tasks.add_task(broadcast_latest_records)
 
     return {
         "id": record.id,
@@ -154,7 +229,11 @@ UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 @app.post("/api/upload/image")
-def upload_image(file: UploadFile = File(...), db: Session = Depends(get_db)):
+def upload_image(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
     # 1) Dosya içeriğini oku (tek sefer okunmalı)
     try:
         content = file.file.read()
@@ -194,7 +273,7 @@ def upload_image(file: UploadFile = File(...), db: Session = Depends(get_db)):
         # kaydetme başarısızsa hata verme; sadece loglanabilir
         pass
 
-    return {
+    response = {
         "id": record.id,
         "plate_number": record.plate_number,
         "entry_time": record.entry_time,
@@ -203,28 +282,24 @@ def upload_image(file: UploadFile = File(...), db: Session = Depends(get_db)):
         "confidence": conf
     }
 
+    if background_tasks:
+        background_tasks.add_task(broadcast_latest_records)
+
+    return response
+
 # --------------------------------------------------
 # 🔹 Tüm park kayıtlarını listeleme
 # --------------------------------------------------
 @app.get("/api/parking_records")
 def get_parking_records(db: Session = Depends(get_db)):
-    records = db.query(models.ParkingRecord).order_by(models.ParkingRecord.entry_time.desc()).all()
-    results = []
-    for r in records:
-        results.append({
-            "id": r.id,
-            "plate_number": r.plate_number,
-            "entry_time": r.entry_time,
-            "exit_time": r.exit_time,
-            "fee": r.fee
-        })
-    return results
+    return get_serialized_records(db)
 
 # --------------------------------------------------
 # 🔹 Çıkış işlemi (park kaydını tamamlama)
 # --------------------------------------------------
 @app.put("/api/parking_records/{record_id}/exit")
 def complete_parking_record(
+    background_tasks: BackgroundTasks,
     record_id: int, 
     fee: float = None,
     db: Session = Depends(get_db)
@@ -254,13 +329,18 @@ def complete_parking_record(
     db.commit()
     db.refresh(record)
     
-    return {
+    response = {
         "id": record.id,
         "plate_number": record.plate_number,
         "entry_time": record.entry_time,
         "exit_time": record.exit_time,
         "fee": record.fee
     }
+
+    if background_tasks:
+        background_tasks.add_task(broadcast_latest_records)
+
+    return response
 
 # --------------------------------------------------
 # 🔹 Tekil park kaydı getirme
@@ -278,6 +358,19 @@ def get_parking_record(record_id: int, db: Session = Depends(get_db)):
         "exit_time": record.exit_time,
         "fee": record.fee
     }
+
+
+@app.websocket("/ws/parking_records")
+async def parking_records_websocket(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        await send_initial_snapshot(websocket)
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+    except Exception:
+        manager.disconnect(websocket)
 
 # --------------------------------------------------
 # 🔹 Frontend dosyalarını sun (React build sonrası)
