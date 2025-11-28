@@ -132,6 +132,7 @@ export default function RecordsTable({ forceRefreshKey = 0 }) {
               <th>Plaka</th>
               <th>Giriş</th>
               <th>Çıkış</th>
+              <th>Güven (%)</th>
               <th>Ücret</th>
               <th>İşlem</th>
             </tr>
@@ -146,6 +147,11 @@ export default function RecordsTable({ forceRefreshKey = 0 }) {
                   {r.exit_time
                     ? r.exit_time.replace("T", " ").slice(0, 19)
                     : <span className="pill status-in">İçeride</span>}
+                </td>
+                <td>
+                  {typeof r.confidence === "number"
+                    ? `${(r.confidence * 100).toFixed(1)}%`
+                    : "-"}
                 </td>
                 <td>{r.fee?.toFixed?.(2) ?? "0.00"}</td>
                 <td>

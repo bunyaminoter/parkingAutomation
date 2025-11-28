@@ -20,8 +20,12 @@ import os
 import hashlib
 from typing import Set
 from backend.services.plate_recognition import recognize_plate_from_bytes
-from backend.database import SessionLocal, engine
+from backend.database import SessionLocal, engine, ensure_schema
 from backend import models
+
+ensure_schema()
+
+MIN_PLATE_CONFIDENCE = float(os.getenv("PLATE_MIN_CONFIDENCE", "0.8"))
 
 # --------------------------------------------------
 # 🔹 Veritabanı tabloları migrasyon ile oluşturulur
@@ -64,6 +68,7 @@ def serialize_record(record: models.ParkingRecord):
             "entry_time": record.entry_time,
             "exit_time": record.exit_time,
             "fee": record.fee,
+            "confidence": record.confidence,
         }
     )
 
@@ -186,6 +191,8 @@ def user_recognize_plate(file: UploadFile = File(...)):
 
     if not plate:
         raise HTTPException(status_code=400, detail="Plaka tanınamadı")
+    if conf < MIN_PLATE_CONFIDENCE:
+        raise HTTPException(status_code=400, detail="Güven oranı yetersiz")
 
     return {
         "plate_number": plate,
@@ -200,12 +207,14 @@ def user_recognize_plate(file: UploadFile = File(...)):
 def manual_entry(
     background_tasks: BackgroundTasks,
     plate_number: str = Form(...),
+    confidence: float | None = Form(None),
     db: Session = Depends(get_db)
 ):
     # Park kaydı oluştur (sadece plaka ile)
     record = models.ParkingRecord(
-        plate_number=plate_number, 
-        entry_time=datetime.utcnow()
+        plate_number=plate_number,
+        entry_time=datetime.utcnow(),
+        confidence=confidence,
     )
     db.add(record)
     db.commit()
@@ -219,7 +228,8 @@ def manual_entry(
         "plate_number": record.plate_number,
         "entry_time": record.entry_time,
         "exit_time": record.exit_time,
-        "fee": record.fee
+        "fee": record.fee,
+        "confidence": record.confidence,
     }
 
 # --------------------------------------------------
@@ -247,12 +257,15 @@ def upload_image(
 
     if not plate:
         raise HTTPException(status_code=400, detail="Plaka tanınamadı")
+    if conf < MIN_PLATE_CONFIDENCE:
+        raise HTTPException(status_code=400, detail="Güven oranı yetersiz")
 
     # 3) Park kaydı oluştur (Car tablosu yoksa doğrudan parking_records içine plate yaz)
     try:
         record = models.ParkingRecord(
             plate_number=plate,
-            entry_time=datetime.utcnow()
+            entry_time=datetime.utcnow(),
+            confidence=conf,
         )
         db.add(record)
         db.commit()
@@ -356,7 +369,8 @@ def get_parking_record(record_id: int, db: Session = Depends(get_db)):
         "plate_number": record.plate_number,
         "entry_time": record.entry_time,
         "exit_time": record.exit_time,
-        "fee": record.fee
+        "fee": record.fee,
+        "confidence": record.confidence,
     }
 
 

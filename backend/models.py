@@ -20,3 +20,4 @@ class ParkingRecord(Base):
     entry_time = Column(DateTime, default=datetime.utcnow)
     exit_time = Column(DateTime, nullable=True)
     fee = Column(Float, default=0.0)
+    confidence = Column(Float, nullable=True)

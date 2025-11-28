@@ -41,6 +41,7 @@ def create_parking_record(db: Session, record: schemas.ParkingRecordCreate) -> m
         entry_time=record.entry_time or datetime.utcnow(),
         exit_time=record.exit_time,
         fee=record.fee or 0.0,
+        confidence=record.confidence,
     )
     db.add(db_record)
     db.commit()

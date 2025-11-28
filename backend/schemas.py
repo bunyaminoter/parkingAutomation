@@ -9,6 +9,7 @@ class ParkingRecordBase(BaseModel):
     entry_time: Optional[datetime] = None
     exit_time: Optional[datetime] = None
     fee: Optional[float] = 0.0
+    confidence: Optional[float] = None
 
 
 class ParkingRecordCreate(ParkingRecordBase):
