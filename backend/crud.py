@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 from sqlalchemy.orm import Session
@@ -72,4 +72,61 @@ def update_exit_time(db: Session, record_id: int, exit_time: Optional[datetime] 
 
 def get_all_records(db: Session) -> List[models.ParkingRecord]:
     return db.query(models.ParkingRecord).order_by(models.ParkingRecord.entry_time.desc()).all()
+
+
+def get_active_record_by_plate(db: Session, plate_number: str) -> Optional[models.ParkingRecord]:
+    """
+    Belirli bir plaka için aktif (çıkış yapılmamış) kayıt bulur.
+    
+    Args:
+        db: Veritabanı session'ı
+        plate_number: Plaka numarası
+    
+    Returns:
+        Aktif kayıt varsa ParkingRecord, yoksa None
+    """
+    return db.query(models.ParkingRecord).filter(
+        models.ParkingRecord.plate_number == plate_number,
+        models.ParkingRecord.exit_time.is_(None)
+    ).order_by(models.ParkingRecord.entry_time.desc()).first()
+
+
+def exit_parking_by_plate(db: Session, plate_number: str, exit_time: Optional[datetime] = None, fee: Optional[float] = None) -> Optional[models.ParkingRecord]:
+    """
+    Plaka numarasına göre aktif kaydı çıkış yapar.
+    
+    Args:
+        db: Veritabanı session'ı
+        plate_number: Plaka numarası
+        exit_time: Çıkış zamanı (None ise şu anki zaman kullanılır)
+        fee: Ücret (None ise otomatik hesaplanır)
+    
+    Returns:
+        Güncellenmiş kayıt veya None (aktif kayıt yoksa)
+    """
+    active_record = get_active_record_by_plate(db, plate_number)
+    if not active_record:
+        return None
+    
+    return update_exit_time(db, active_record.id, exit_time=exit_time, fee=fee)
+
+
+def get_recent_entry_by_plate(db: Session, plate_number: str, seconds: int = 30) -> Optional[models.ParkingRecord]:
+    """
+    Kısa süre içinde (varsayılan 10 saniye) aynı plaka için giriş yapılmış mı kontrol eder.
+    Bu, aracın kameranın önünde beklediği durumları tespit etmek için kullanılır.
+    
+    Args:
+        db: Veritabanı session'ı
+        plate_number: Plaka numarası
+        seconds: Kontrol edilecek süre (saniye cinsinden)
+    
+    Returns:
+        Son giriş kaydı varsa ParkingRecord, yoksa None
+    """
+    threshold_time = datetime.utcnow() - timedelta(seconds=seconds)
+    return db.query(models.ParkingRecord).filter(
+        models.ParkingRecord.plate_number == plate_number,
+        models.ParkingRecord.entry_time >= threshold_time
+    ).order_by(models.ParkingRecord.entry_time.desc()).first()
 

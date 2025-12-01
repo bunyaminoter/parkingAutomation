@@ -8,24 +8,33 @@ from fastapi import (
     UploadFile,
     WebSocket,
     WebSocketDisconnect,
+    Request,
+    Response,
 )
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import hashlib
-from typing import Set
+import secrets
+from typing import Set, Optional
 from backend.services.plate_recognition import recognize_plate_from_bytes
 from backend.database import SessionLocal, engine, ensure_schema
-from backend import models
+from backend import models, crud
 
 ensure_schema()
 
 MIN_PLATE_CONFIDENCE = float(os.getenv("PLATE_MIN_CONFIDENCE", "0.8"))
+
+# Session yönetimi için in-memory storage (production'da Redis kullanılabilir)
+active_sessions: dict[str, dict] = {}
+SESSION_COOKIE_NAME = "parking_session_token"
+SESSION_DURATION_DAYS = 7  # "Beni hatırla" için
+SESSION_DURATION_HOURS = 24  # Normal session için
 
 # --------------------------------------------------
 # 🔹 Veritabanı tabloları migrasyon ile oluşturulur
@@ -133,15 +142,56 @@ def health_check(db: Session = Depends(get_db)):
         raise HTTPException(status_code=503, detail=f"Database connection failed: {str(e)}")
 
 # --------------------------------------------------
+# 🔹 Session yönetimi yardımcı fonksiyonları
+# --------------------------------------------------
+def create_session_token(user_id: int, username: str, remember_me: bool = False) -> str:
+    """Yeni session token oluşturur"""
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.utcnow() + (
+        timedelta(days=SESSION_DURATION_DAYS) if remember_me 
+        else timedelta(hours=SESSION_DURATION_HOURS)
+    )
+    active_sessions[token] = {
+        "user_id": user_id,
+        "username": username,
+        "expires_at": expires_at,
+        "remember_me": remember_me
+    }
+    return token
+
+
+def get_session_user(token: str) -> Optional[dict]:
+    """Session token'dan kullanıcı bilgisini alır"""
+    if token not in active_sessions:
+        return None
+    
+    session = active_sessions[token]
+    if datetime.utcnow() > session["expires_at"]:
+        # Süresi dolmuş session'ı temizle
+        del active_sessions[token]
+        return None
+    
+    return session
+
+
+def delete_session(token: str):
+    """Session'ı siler"""
+    if token in active_sessions:
+        del active_sessions[token]
+
+
+# --------------------------------------------------
 # 🔹 Authentication endpoints
 # --------------------------------------------------
 @app.post("/api/login")
 def login(
+    response: Response,
     username: str = Form(...),
     password: str = Form(...),
+    remember_me: bool = Form(False),
     db: Session = Depends(get_db)
 ):
-    """Admin girişi"""
+    """Admin girişi - cookie ve session token oluşturur"""
     # Şifreyi hash'le
     hashed_password = hashlib.md5(password.encode()).hexdigest()
     
@@ -154,6 +204,31 @@ def login(
     if not user:
         raise HTTPException(status_code=401, detail="Geçersiz kullanıcı adı veya şifre")
     
+    # Session token oluştur
+    session_token = create_session_token(user.id, user.username, remember_me)
+    
+    # Cookie ayarları
+    # remember_me=True ise uzun süreli cookie, False ise session cookie (tarayıcı kapanınca silinir)
+    if remember_me:
+        max_age = SESSION_DURATION_DAYS * 24 * 60 * 60
+        response.set_cookie(
+            key=SESSION_COOKIE_NAME,
+            value=session_token,
+            max_age=max_age,
+            httponly=True,
+            samesite="lax",
+            secure=False  # HTTPS kullanıyorsanız True yapın
+        )
+    else:
+        # Session cookie - tarayıcı kapanınca silinir (max_age belirtilmez)
+        response.set_cookie(
+            key=SESSION_COOKIE_NAME,
+            value=session_token,
+            httponly=True,
+            samesite="lax",
+            secure=False  # HTTPS kullanıyorsanız True yapın
+        )
+    
     return {
         "success": True,
         "message": "Giriş başarılı",
@@ -162,6 +237,45 @@ def login(
             "username": user.username
         }
     }
+
+
+@app.get("/api/check_session")
+def check_session(request: Request, db: Session = Depends(get_db)):
+    """Mevcut session'ı kontrol eder"""
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    if not token:
+        raise HTTPException(status_code=401, detail="Session bulunamadı")
+    
+    session = get_session_user(token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Session geçersiz veya süresi dolmuş")
+    
+    # Kullanıcıyı veritabanından al
+    user = db.query(models.User).filter(models.User.id == session["user_id"]).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Kullanıcı bulunamadı")
+    
+    return {
+        "success": True,
+        "user": {
+            "id": user.id,
+            "username": user.username
+        },
+        "remember_me": session.get("remember_me", False)  # remember_me bilgisini döndür
+    }
+
+
+@app.post("/api/logout")
+def logout(response: Response, request: Request):
+    """Çıkış yapar ve session'ı siler"""
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    if token:
+        delete_session(token)
+    
+    # Cookie'yi sil
+    response.delete_cookie(key=SESSION_COOKIE_NAME)
+    
+    return {"success": True, "message": "Çıkış başarılı"}
 
 @app.get("/api/user_login")
 def user_login():
@@ -210,7 +324,46 @@ def manual_entry(
     confidence: float | None = Form(None),
     db: Session = Depends(get_db)
 ):
-    # Park kaydı oluştur (sadece plaka ile)
+    """
+    Plaka tanındığında:
+    1. Son 10 saniye içinde aynı plaka için giriş yapılmışsa, yeni giriş yapma (araç bekliyor)
+    2. Aktif kayıt (exit_time=None) varsa, çıkış yap
+    3. Aktif kayıt yoksa, yeni giriş kaydı oluştur
+    """
+    # 1. Son 10 saniye içinde giriş yapılmış mı kontrol et (debounce)
+    recent_entry = crud.get_recent_entry_by_plate(db, plate_number, seconds=10)
+    if recent_entry:
+        # Araç kameranın önünde bekliyor, yeni giriş yapma
+        return {
+            "id": recent_entry.id,
+            "plate_number": recent_entry.plate_number,
+            "entry_time": recent_entry.entry_time,
+            "exit_time": recent_entry.exit_time,
+            "fee": recent_entry.fee,
+            "confidence": recent_entry.confidence,
+            "message": "Araç kameranın önünde bekliyor, yeni giriş yapılmadı"
+        }
+    
+    # 2. Aktif kayıt (çıkış yapılmamış) var mı kontrol et
+    active_record = crud.get_active_record_by_plate(db, plate_number)
+    
+    if active_record:
+        # Aktif kayıt varsa, çıkış yap
+        exit_record = crud.exit_parking_by_plate(db, plate_number)
+        if exit_record:
+            if background_tasks:
+                background_tasks.add_task(broadcast_latest_records)
+            return {
+                "id": exit_record.id,
+                "plate_number": exit_record.plate_number,
+                "entry_time": exit_record.entry_time,
+                "exit_time": exit_record.exit_time,
+                "fee": exit_record.fee,
+                "confidence": exit_record.confidence,
+                "action": "exit"
+            }
+    
+    # 3. Aktif kayıt yoksa, yeni giriş kaydı oluştur
     record = models.ParkingRecord(
         plate_number=plate_number,
         entry_time=datetime.utcnow(),
@@ -230,6 +383,7 @@ def manual_entry(
         "exit_time": record.exit_time,
         "fee": record.fee,
         "confidence": record.confidence,
+        "action": "entry"
     }
 
 # --------------------------------------------------
@@ -244,6 +398,12 @@ def upload_image(
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
+    """
+    Resim yükleme ve plaka tanıma:
+    1. Son 10 saniye içinde aynı plaka için giriş yapılmışsa, yeni giriş yapma (araç bekliyor)
+    2. Aktif kayıt (exit_time=None) varsa, çıkış yap
+    3. Aktif kayıt yoksa, yeni giriş kaydı oluştur
+    """
     # 1) Dosya içeriğini oku (tek sefer okunmalı)
     try:
         content = file.file.read()
@@ -260,7 +420,65 @@ def upload_image(
     if conf < MIN_PLATE_CONFIDENCE:
         raise HTTPException(status_code=400, detail="Güven oranı yetersiz")
 
-    # 3) Park kaydı oluştur (Car tablosu yoksa doğrudan parking_records içine plate yaz)
+    # 3) Son 10 saniye içinde giriş yapılmış mı kontrol et (debounce)
+    recent_entry = crud.get_recent_entry_by_plate(db, plate, seconds=10)
+    if recent_entry:
+        # Araç kameranın önünde bekliyor, yeni giriş yapma
+        response = {
+            "id": recent_entry.id,
+            "plate_number": recent_entry.plate_number,
+            "entry_time": recent_entry.entry_time,
+            "exit_time": recent_entry.exit_time,
+            "fee": recent_entry.fee,
+            "confidence": recent_entry.confidence,
+            "message": "Araç kameranın önünde bekliyor, yeni giriş yapılmadı"
+        }
+        # Dosyayı kaydet
+        try:
+            os.makedirs(UPLOAD_DIR, exist_ok=True)
+            safe_name = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{file.filename}"
+            path = os.path.join(UPLOAD_DIR, safe_name)
+            with open(path, "wb") as f:
+                f.write(content)
+        except Exception:
+            pass
+        return response
+    
+    # 4) Aktif kayıt (çıkış yapılmamış) var mı kontrol et
+    active_record = crud.get_active_record_by_plate(db, plate)
+    
+    if active_record:
+        # Aktif kayıt varsa, çıkış yap
+        try:
+            exit_record = crud.exit_parking_by_plate(db, plate)
+            if exit_record:
+                response = {
+                    "id": exit_record.id,
+                    "plate_number": exit_record.plate_number,
+                    "entry_time": exit_record.entry_time,
+                    "exit_time": exit_record.exit_time,
+                    "fee": exit_record.fee,
+                    "confidence": exit_record.confidence,
+                    "action": "exit"
+                }
+                # Dosyayı kaydet
+                try:
+                    os.makedirs(UPLOAD_DIR, exist_ok=True)
+                    safe_name = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{file.filename}"
+                    path = os.path.join(UPLOAD_DIR, safe_name)
+                    with open(path, "wb") as f:
+                        f.write(content)
+                except Exception:
+                    pass
+                
+                if background_tasks:
+                    background_tasks.add_task(broadcast_latest_records)
+                return response
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(status_code=500, detail=f"Çıkış işlemi hatası: {str(e)}")
+    
+    # 5) Aktif kayıt yoksa, yeni giriş kaydı oluştur
     try:
         record = models.ParkingRecord(
             plate_number=plate,
@@ -274,9 +492,8 @@ def upload_image(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Veritabanı hatası: {str(e)}")
 
-    # 4) Opsiyonel: yüklenen dosyayı diske kaydet (isteğe bağlı)
+    # 6) Opsiyonel: yüklenen dosyayı diske kaydet (isteğe bağlı)
     try:
-        import os
         os.makedirs(UPLOAD_DIR, exist_ok=True)
         safe_name = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{file.filename}"
         path = os.path.join(UPLOAD_DIR, safe_name)
@@ -292,7 +509,8 @@ def upload_image(
         "entry_time": record.entry_time,
         "exit_time": record.exit_time,
         "fee": record.fee,
-        "confidence": conf
+        "confidence": conf,
+        "action": "entry"
     }
 
     if background_tasks:
