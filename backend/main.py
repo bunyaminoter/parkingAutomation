@@ -622,6 +622,16 @@ def upload_image(
 def get_parking_records(db: Session = Depends(get_db)):
     return get_serialized_records(db)
 
+
+@app.get("/api/parking_records/by_plate/{plate_number}")
+def get_parking_records_by_plate(plate_number: str, db: Session = Depends(get_db)):
+    """
+    Belirli bir plaka için tüm park kayıtlarını listeler.
+    Kullanıcı panelinde geçmiş giriş/çıkış ve ücretleri göstermek için kullanılır.
+    """
+    records = crud.get_records_by_plate(db, plate_number=plate_number)
+    return [serialize_record(r) for r in records]
+
 # --------------------------------------------------
 # 🔹 Çıkış işlemi (park kaydını tamamlama)
 # --------------------------------------------------

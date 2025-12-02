@@ -5,6 +5,7 @@ const API = {
   uploadImage: "/api/upload/image",
   uploadVideo: "/api/upload/video",
   getRecords: "/api/parking_records",
+  getRecordsByPlate: (plate) => `/api/parking_records/by_plate/${encodeURIComponent(plate)}`,
   createRecord: "/api/parking_records",
   completeRecord: (recordId) => `/api/parking_records/${recordId}/exit`,
   updatePlate: (recordId) => `/api/parking_records/${recordId}/plate`,

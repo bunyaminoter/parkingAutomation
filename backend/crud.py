@@ -130,3 +130,15 @@ def get_recent_entry_by_plate(db: Session, plate_number: str, seconds: int = 30)
         models.ParkingRecord.entry_time >= threshold_time
     ).order_by(models.ParkingRecord.entry_time.desc()).first()
 
+
+def get_records_by_plate(db: Session, plate_number: str) -> List[models.ParkingRecord]:
+    """
+    Belirli bir plaka için tüm kayıtları (eski -> yeni) döndürür.
+    """
+    return (
+        db.query(models.ParkingRecord)
+        .filter(models.ParkingRecord.plate_number == plate_number)
+        .order_by(models.ParkingRecord.entry_time.desc())
+        .all()
+    )
+
