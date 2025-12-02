@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from ..database import SessionLocal
+from ..database import session_scope
 from .. import schemas, crud
 from ..services.plate_recognition import recognize_plate_from_bytes
 from fastapi import BackgroundTasks
@@ -13,11 +13,9 @@ router = APIRouter(prefix="/api", tags=["parking"])
 
 
 def get_db():
-    db = SessionLocal()
-    try:
+    # Ortak wrapped session kullan
+    with session_scope() as db:
         yield db
-    finally:
-        db.close()
 
 
 @router.get("/health")

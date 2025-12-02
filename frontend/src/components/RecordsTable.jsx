@@ -97,6 +97,23 @@ export default function RecordsTable({ forceRefreshKey = 0 }) {
     }
   };
 
+  const handleEditPlate = async (record) => {
+    const current = record.plate_number || "";
+    const next = window.prompt("Yeni plaka numarasını girin:", current);
+    if (!next || next.trim() === "" || next.trim() === current.trim()) {
+      return;
+    }
+    try {
+      await fetchJSON(API.base + API.updatePlate(record.id), {
+        method: "PUT",
+        body: JSON.stringify({ plate_number: next.trim() }),
+      });
+      await fetchLatest();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const statusText = {
     connecting: "Canlı bağlantı kuruluyor...",
     connected: "Canlı veri",
@@ -155,6 +172,13 @@ export default function RecordsTable({ forceRefreshKey = 0 }) {
                 </td>
                 <td>{r.fee?.toFixed?.(2) ?? "0.00"}</td>
                 <td>
+                  <button
+                    onClick={() => handleEditPlate(r)}
+                    className="btn-small"
+                    style={{ marginRight: "6px" }}
+                  >
+                    Plakayı Düzenle
+                  </button>
                   {!r.exit_time && (
                     <button
                       onClick={() => handleComplete(r.id)}

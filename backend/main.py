@@ -21,9 +21,10 @@ from datetime import datetime, timedelta
 import os
 import hashlib
 import secrets
-from typing import Set, Optional
+from typing import Set, Optional, List
+from pydantic import BaseModel
 from backend.services.plate_recognition import recognize_plate_from_bytes
-from backend.database import SessionLocal, engine, ensure_schema
+from backend.database import SessionLocal, engine, ensure_schema, session_scope
 from backend import models, crud
 
 ensure_schema()
@@ -59,14 +60,13 @@ app.add_middleware(
 )
 
 # --------------------------------------------------
-# 🔹 DB session bağımlılığı
+# 🔹 DB session bağımlılığı (wrapped session kullanır)
 # --------------------------------------------------
 def get_db():
-    db = SessionLocal()
-    try:
+    # Tüm controller'larda aynı wrapped session kullanılsın diye
+    with session_scope() as db:
+        # FastAPI Depends mekanizması için yield gerekiyor
         yield db
-    finally:
-        db.close()
 
 
 def serialize_record(record: models.ParkingRecord):
@@ -113,21 +113,52 @@ manager = ConnectionManager()
 
 
 async def broadcast_latest_records():
-    db = SessionLocal()
-    try:
+    # Wrapped session ile kayıtları çek
+    with session_scope() as db:
         payload = get_serialized_records(db)
-    finally:
-        db.close()
     await manager.broadcast({"type": "records", "payload": payload})
 
 
 async def send_initial_snapshot(websocket: WebSocket):
-    db = SessionLocal()
-    try:
+    # Wrapped session ile ilk snapshot'ı gönder
+    with session_scope() as db:
         payload = get_serialized_records(db)
-    finally:
-        db.close()
     await websocket.send_json({"type": "records", "payload": payload})
+
+
+# --------------------------------------------------
+# 🔹 Admin / kullanıcı yönetimi için şema modelleri
+# --------------------------------------------------
+
+
+class PlateUpdate(BaseModel):
+    plate_number: str
+
+
+class UserOut(BaseModel):
+    id: int
+    username: str
+    is_super_admin: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class PasswordUpdate(BaseModel):
+    password: str
+
+
+class UserCreate(BaseModel):
+    username: str
+    password: str
+    is_super_admin: int = 0
+
+
+class UserUpdate(BaseModel):
+    username: Optional[str] = None
+    password: Optional[str] = None
+    is_super_admin: Optional[int] = None
 
 # --------------------------------------------------
 # 🔹 Health check endpoint
@@ -144,7 +175,12 @@ def health_check(db: Session = Depends(get_db)):
 # --------------------------------------------------
 # 🔹 Session yönetimi yardımcı fonksiyonları
 # --------------------------------------------------
-def create_session_token(user_id: int, username: str, remember_me: bool = False) -> str:
+def create_session_token(
+    user_id: int,
+    username: str,
+    is_super_admin: int,
+    remember_me: bool = False,
+) -> str:
     """Yeni session token oluşturur"""
     token = secrets.token_urlsafe(32)
     expires_at = datetime.utcnow() + (
@@ -154,8 +190,9 @@ def create_session_token(user_id: int, username: str, remember_me: bool = False)
     active_sessions[token] = {
         "user_id": user_id,
         "username": username,
+        "is_super_admin": int(is_super_admin),
         "expires_at": expires_at,
-        "remember_me": remember_me
+        "remember_me": remember_me,
     }
     return token
 
@@ -191,7 +228,7 @@ def login(
     remember_me: bool = Form(False),
     db: Session = Depends(get_db)
 ):
-    """Admin girişi - cookie ve session token oluşturur"""
+    """Normal admin girişi - cookie ve session token oluşturur"""
     # Şifreyi hash'le
     hashed_password = hashlib.md5(password.encode()).hexdigest()
     
@@ -204,8 +241,17 @@ def login(
     if not user:
         raise HTTPException(status_code=401, detail="Geçersiz kullanıcı adı veya şifre")
     
+    # Sadece normal adminler bu endpoint ile giriş yapabilir
+    if int(getattr(user, "is_super_admin", 0)) == 1:
+        raise HTTPException(status_code=403, detail="Bu kullanıcı için normal admin girişi kullanılamaz")
+
     # Session token oluştur
-    session_token = create_session_token(user.id, user.username, remember_me)
+    session_token = create_session_token(
+        user.id,
+        user.username,
+        is_super_admin=int(getattr(user, "is_super_admin", 0)),
+        remember_me=remember_me,
+    )
     
     # Cookie ayarları
     # remember_me=True ise uzun süreli cookie, False ise session cookie (tarayıcı kapanınca silinir)
@@ -234,7 +280,8 @@ def login(
         "message": "Giriş başarılı",
         "user": {
             "id": user.id,
-            "username": user.username
+            "username": user.username,
+            "is_super_admin": int(getattr(user, "is_super_admin", 0)),
         }
     }
 
@@ -259,9 +306,10 @@ def check_session(request: Request, db: Session = Depends(get_db)):
         "success": True,
         "user": {
             "id": user.id,
-            "username": user.username
+            "username": user.username,
+            "is_super_admin": int(getattr(user, "is_super_admin", 0)),
         },
-        "remember_me": session.get("remember_me", False)  # remember_me bilgisini döndür
+        "remember_me": session.get("remember_me", False),  # remember_me bilgisini döndür
     }
 
 
@@ -284,6 +332,55 @@ def user_login():
         "success": True,
         "message": "Kullanıcı girişi başarılı",
         "user_type": "user"
+    }
+
+
+# --------------------------------------------------
+# 🔹 Üst admin login endpoint'i
+# --------------------------------------------------
+@app.post("/api/super_admin/login")
+def super_admin_login(
+    response: Response,
+    username: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    """Üst admin girişi - sadece is_super_admin=1 kullanıcılar"""
+    hashed_password = hashlib.md5(password.encode()).hexdigest()
+
+    user = db.query(models.User).filter(
+        models.User.username == username,
+        models.User.password == hashed_password,
+        models.User.is_super_admin == 1,
+    ).first()
+
+    if not user:
+        raise HTTPException(status_code=401, detail="Geçersiz üst admin bilgileri")
+
+    session_token = create_session_token(
+        user.id,
+        user.username,
+        is_super_admin=1,
+        remember_me=False,
+    )
+
+    # Üst admin için de aynı session cookie kullanıyoruz
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=session_token,
+        httponly=True,
+        samesite="lax",
+        secure=False,
+    )
+
+    return {
+        "success": True,
+        "message": "Üst admin girişi başarılı",
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "is_super_admin": 1,
+        },
     }
 
 # --------------------------------------------------
@@ -572,6 +669,174 @@ def complete_parking_record(
         background_tasks.add_task(broadcast_latest_records)
 
     return response
+
+
+# --------------------------------------------------
+# 🔹 Plaka güncelleme (admin panelinden düzenleme)
+# --------------------------------------------------
+@app.put("/api/parking_records/{record_id}/plate")
+def update_parking_plate(
+    record_id: int,
+    payload: PlateUpdate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    record = db.query(models.ParkingRecord).filter(models.ParkingRecord.id == record_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Park kaydı bulunamadı")
+
+    record.plate_number = payload.plate_number.strip()
+    db.commit()
+    db.refresh(record)
+
+    if background_tasks:
+        background_tasks.add_task(broadcast_latest_records)
+
+    return serialize_record(record)
+
+
+# --------------------------------------------------
+# 🔹 Kullanıcı listeleme (üst admin paneli)
+# --------------------------------------------------
+@app.get("/api/users", response_model=List[UserOut])
+def list_users(db: Session = Depends(get_db), request: Request = None):
+    # Sadece üst adminler kullanıcı listesine erişebilir
+    if request is not None:
+        token = request.cookies.get(SESSION_COOKIE_NAME)
+        session = get_session_user(token) if token else None
+        if not session or int(session.get("is_super_admin", 0)) != 1:
+            raise HTTPException(status_code=403, detail="Yetkisiz erişim")
+    users = db.query(models.User).order_by(models.User.id).all()
+    return users
+
+
+# --------------------------------------------------
+# 🔹 Kullanıcı silme (üst admin paneli)
+# --------------------------------------------------
+@app.delete("/api/users/{user_id}")
+def delete_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    request: Request = None,
+):
+    # Sadece üst adminler kullanıcı silebilir
+    if request is not None:
+        token = request.cookies.get(SESSION_COOKIE_NAME)
+        session = get_session_user(token) if token else None
+        if not session or int(session.get("is_super_admin", 0)) != 1:
+            raise HTTPException(status_code=403, detail="Yetkisiz erişim")
+
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı")
+
+    db.delete(user)
+    db.commit()
+
+    return {"success": True, "message": "Kullanıcı silindi"}
+
+
+# --------------------------------------------------
+# 🔹 Kullanıcı oluşturma (üst admin paneli)
+# --------------------------------------------------
+@app.post("/api/users", response_model=UserOut)
+def create_user(
+    payload: UserCreate,
+    db: Session = Depends(get_db),
+    request: Request = None,
+):
+    # Sadece üst adminler kullanıcı ekleyebilir
+    if request is not None:
+        token = request.cookies.get(SESSION_COOKIE_NAME)
+        session = get_session_user(token) if token else None
+        if not session or int(session.get("is_super_admin", 0)) != 1:
+            raise HTTPException(status_code=403, detail="Yetkisiz erişim")
+
+    exists = db.query(models.User).filter(models.User.username == payload.username).first()
+    if exists:
+        raise HTTPException(status_code=400, detail="Bu kullanıcı adı zaten kullanılıyor")
+
+    hashed_password = hashlib.md5(payload.password.encode()).hexdigest()
+    user = models.User(
+        username=payload.username,
+        password=hashed_password,
+        is_super_admin=int(payload.is_super_admin or 0),
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+# --------------------------------------------------
+# 🔹 Kullanıcı bilgilerini güncelleme (üst admin paneli)
+# --------------------------------------------------
+@app.put("/api/users/{user_id}", response_model=UserOut)
+def update_user(
+    user_id: int,
+    payload: UserUpdate,
+    db: Session = Depends(get_db),
+    request: Request = None,
+):
+    # Sadece üst adminler kullanıcı güncelleyebilir
+    if request is not None:
+        token = request.cookies.get(SESSION_COOKIE_NAME)
+        session = get_session_user(token) if token else None
+        if not session or int(session.get("is_super_admin", 0)) != 1:
+            raise HTTPException(status_code=403, detail="Yetkisiz erişim")
+
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı")
+
+    if payload.username is not None and payload.username != user.username:
+        exists = (
+            db.query(models.User)
+            .filter(models.User.username == payload.username, models.User.id != user_id)
+            .first()
+        )
+        if exists:
+            raise HTTPException(status_code=400, detail="Bu kullanıcı adı zaten kullanılıyor")
+        user.username = payload.username
+
+    if payload.password:
+        user.password = hashlib.md5(payload.password.encode()).hexdigest()
+
+    if payload.is_super_admin is not None:
+        user.is_super_admin = int(payload.is_super_admin)
+
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+# --------------------------------------------------
+# 🔹 Kullanıcı şifresi güncelleme (üst admin paneli - eski endpoint)
+# --------------------------------------------------
+@app.put("/api/users/{user_id}/password")
+def change_user_password(
+    user_id: int,
+    payload: PasswordUpdate,
+    db: Session = Depends(get_db),
+    request: Request = None,
+):
+    # Sadece üst adminler şifre güncelleyebilir
+    if request is not None:
+        token = request.cookies.get(SESSION_COOKIE_NAME)
+        session = get_session_user(token) if token else None
+        if not session or int(session.get("is_super_admin", 0)) != 1:
+            raise HTTPException(status_code=403, detail="Yetkisiz erişim")
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı")
+
+    if not payload.password:
+        raise HTTPException(status_code=400, detail="Yeni şifre boş olamaz")
+
+    user.password = hashlib.md5(payload.password.encode()).hexdigest()
+    db.commit()
+
+    return {"success": True, "message": "Şifre güncellendi"}
 
 # --------------------------------------------------
 # 🔹 Tekil park kaydı getirme
