@@ -59,20 +59,13 @@ export default function AdminPage() {
           Çıkış Yap
         </button>
       </div>
-      <div className="grid">
-        <div className="col-6">
-          <ManualEntryCard onCreated={triggerRefresh} />
-        </div>
-        <div className="col-6">
-          <UploadCard onCreated={triggerRefresh} />
-          <div style={{ height: "16px" }}></div>
-        </div>
-        <div className="col-12">
-          <CameraCaptureCard onCreated={triggerRefresh} />
-        </div>
-        <div className="col-12">
-          <RecordsTable forceRefreshKey={refreshTick} />
-        </div>
+      <div className="admin-grid-top">
+        <ManualEntryCard onCreated={triggerRefresh} />
+        <UploadCard onCreated={triggerRefresh} />
+        <CameraCaptureCard onCreated={triggerRefresh} />
+      </div>
+      <div className="admin-records-section">
+        <RecordsTable forceRefreshKey={refreshTick} />
       </div>
     </div>
   );

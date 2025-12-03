@@ -13,11 +13,11 @@ export default function ManualEntryCard({ onCreated }) {
 
     try {
       const fd = new FormData();
-      fd.append("plate_number", plate.trim());
+      fd.append("plate_number", plate.trim().toUpperCase());
 
       const res = await fetch(API.base + API.manualEntry, {
         method: "POST",
-        body: fd, // FormData gönderiyoruz, JSON değil
+        body: fd,
       });
 
       if (!res.ok) {
@@ -38,17 +38,37 @@ export default function ManualEntryCard({ onCreated }) {
     <div className="card">
       <h2>Manuel Giriş</h2>
       <form onSubmit={onSubmit}>
-        <label>Plaka</label>
-        <input
-          type="text"
-          required
-          value={plate}
-          onChange={(e) => setPlate(e.target.value)}
-        />
-        <button disabled={loading}>
-          {loading ? "Kaydediliyor..." : "Giriş Oluştur"}
+        <div className="form-group">
+          <label htmlFor="plate">Plaka Numarası</label>
+          <input
+            id="plate"
+            type="text"
+            required
+            value={plate}
+            onChange={(e) => setPlate(e.target.value.toUpperCase())}
+            placeholder="Örn: 34ABC123"
+            maxLength={10}
+            disabled={loading}
+            style={{ 
+              textTransform: "uppercase", 
+              letterSpacing: "1px", 
+              fontSize: "16px", 
+              fontWeight: "600",
+              fontFamily: "monospace"
+            }}
+          />
+        </div>
+        <button type="submit" disabled={loading}>
+          {loading ? (
+            <>
+              <span className="loading-spinner"></span>
+              Kaydediliyor...
+            </>
+          ) : (
+            "Giriş Oluştur"
+          )}
         </button>
-        {error && <p className="muted">{error}</p>}
+        {error && <div className="error-message">{error}</div>}
       </form>
     </div>
   );

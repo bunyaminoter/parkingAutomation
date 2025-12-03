@@ -9,7 +9,7 @@ import "./App.css";
 
 export default function App() {
   return (
-    <Router>
+    <Router future={{ v7_startTransition: true }}>
       <div className="app">
         <Routes>
           <Route path="/" element={<LoginPage />} />

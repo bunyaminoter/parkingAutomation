@@ -32,7 +32,7 @@ export default function LoginPage() {
         }
       } catch (err) {
         // Session yoksa veya hata varsa, login sayfasında kal
-        console.log("Session kontrolü başarısız:", err);
+        // Session kontrolü başarısız
       }
     };
 

@@ -236,31 +236,44 @@ export default function UserPage() {
                 <div className="history">
                   <h3>Geçmiş Giriş / Çıkışlar</h3>
                   {history.length === 0 ? (
-                    <p className="muted">Bu plaka için geçmiş kayıt bulunamadı.</p>
+                    <p className="muted" style={{ textAlign: "center", padding: "20px" }}>
+                      Bu plaka için geçmiş kayıt bulunamadı.
+                    </p>
                   ) : (
                     <ul className="history-list">
                       {history.map((r) => (
                         <li key={r.id}>
-                          <span>
-                            Giriş:{" "}
-                            {r.entry_time
-                              ? r.entry_time.replace("T", " ").slice(0, 19)
-                              : "-"}
-                          </span>
-                          {" | "}
-                          <span>
-                            Çıkış:{" "}
-                            {r.exit_time
-                              ? r.exit_time.replace("T", " ").slice(0, 19)
-                              : "-"}
-                          </span>
-                          {" | "}
-                          <span>
-                            Ücret:{" "}
-                            {typeof r.fee === "number"
-                              ? `${r.fee.toFixed(2)} TL`
-                              : "-"}
-                          </span>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <span style={{ fontWeight: "600", color: "var(--color-text-primary)", fontSize: "0.875rem" }}>
+                                Giriş: {r.entry_time
+                                  ? r.entry_time.replace("T", " ").slice(0, 19)
+                                  : "-"}
+                              </span>
+                              {r.exit_time && (
+                                <span style={{ fontWeight: "600", color: "var(--color-text-primary)", fontSize: "0.875rem" }}>
+                                  Çıkış: {r.exit_time.replace("T", " ").slice(0, 19)}
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <span style={{ 
+                                fontSize: "0.75rem", 
+                                color: "var(--color-text-muted)",
+                                padding: "4px 8px",
+                                background: r.exit_time ? "var(--color-bg-secondary)" : "#d1fae5",
+                                borderRadius: "4px",
+                                fontWeight: "500"
+                              }}>
+                                {r.exit_time ? "Tamamlandı" : "Aktif"}
+                              </span>
+                              <span style={{ fontWeight: "700", color: "var(--color-primary)", fontSize: "1rem" }}>
+                                {typeof r.fee === "number"
+                                  ? `${r.fee.toFixed(2)} ₺`
+                                  : "-"}
+                              </span>
+                            </div>
+                          </div>
                         </li>
                       ))}
                     </ul>
@@ -277,17 +290,21 @@ export default function UserPage() {
           <div className="card">
             <h2>Giriş Yapan Araçlar (Bu Oturum)</h2>
             {sessionEntries.length === 0 ? (
-              <p className="muted">Henüz giriş yapan araç yok.</p>
+              <p className="muted" style={{ textAlign: "center", padding: "20px" }}>
+                Henüz giriş yapan araç yok.
+              </p>
             ) : (
               <ul className="history-list">
                 {sessionEntries.map((e, idx) => (
                   <li key={`${e.plate_number}-${e.time}-${idx}`}>
-                    <span>Plaka: {e.plate_number}</span>
-                    {" | "}
-                    <span>
-                      Zaman:{" "}
-                      {e.time.replace("T", " ").slice(0, 19)}
-                    </span>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontWeight: "700", fontSize: "1rem", letterSpacing: "1px", color: "var(--color-primary)", fontFamily: "monospace" }}>
+                        {e.plate_number}
+                      </span>
+                      <span style={{ fontSize: "0.875rem", color: "var(--color-text-secondary)" }}>
+                        {e.time.replace("T", " ").slice(0, 19)}
+                      </span>
+                    </div>
                   </li>
                 ))}
               </ul>

@@ -9,10 +9,10 @@ export default function SuperAdminPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [updatingId, setUpdatingId] = useState(null);
-   const [creating, setCreating] = useState(false);
-   const [newUsername, setNewUsername] = useState("");
-   const [newPassword, setNewPassword] = useState("");
-   const [newIsSuper, setNewIsSuper] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newUsername, setNewUsername] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [newIsSuper, setNewIsSuper] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -28,7 +28,6 @@ export default function SuperAdminPage() {
         }
         const data = await response.json();
         if (!data?.user || data.user.is_super_admin !== 1) {
-          // Üst admin değilse giriş izni verme
           navigate("/");
         }
       } catch {
@@ -174,16 +173,19 @@ export default function SuperAdminPage() {
       </div>
 
       <div className="card">
-        <h2>Kullanıcılar</h2>
+        <h2>Kullanıcı Yönetimi</h2>
 
         <form
           onSubmit={handleCreateUser}
           style={{
-            display: "flex",
-            gap: "8px",
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+            gap: "16px",
             alignItems: "flex-end",
-            marginBottom: "16px",
-            flexWrap: "wrap",
+            marginBottom: "24px",
+            padding: "24px",
+            background: "linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)",
+            borderRadius: "var(--border-radius-sm)",
           }}
         >
           <div className="form-group">
@@ -193,6 +195,7 @@ export default function SuperAdminPage() {
               value={newUsername}
               onChange={(e) => setNewUsername(e.target.value)}
               disabled={creating}
+              placeholder="Kullanıcı adı"
             />
           </div>
           <div className="form-group">
@@ -202,86 +205,123 @@ export default function SuperAdminPage() {
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               disabled={creating}
+              placeholder="Şifre"
             />
           </div>
-          <div className="form-group" style={{ display: "flex", alignItems: "center" }}>
-            <label style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+          <div className="form-group" style={{ display: "flex", alignItems: "center", paddingTop: "24px" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", userSelect: "none" }}>
               <input
                 type="checkbox"
                 checked={newIsSuper}
                 onChange={(e) => setNewIsSuper(e.target.checked)}
                 disabled={creating}
+                style={{ width: "20px", height: "20px", cursor: "pointer" }}
               />
-              Üst admin
+              <span style={{ fontWeight: "600" }}>Üst admin</span>
             </label>
           </div>
           <button
             type="submit"
             disabled={creating || !newUsername.trim() || !newPassword.trim()}
-            className="btn-small"
+            style={{ gridColumn: "span 1" }}
           >
-            {creating ? "Ekleniyor..." : "Yeni Kullanıcı Ekle"}
+            {creating ? (
+              <>
+                <span className="loading-spinner"></span>
+                Ekleniyor...
+              </>
+            ) : (
+              "Yeni Kullanıcı Ekle"
+            )}
           </button>
         </form>
+
+        {error && <div className="error-message">{error}</div>}
+
         {loading ? (
-          <p className="muted">Yükleniyor...</p>
+          <div style={{ textAlign: "center", padding: "48px" }}>
+            <div className="loading-spinner" style={{ margin: "0 auto 16px", borderColor: "var(--color-primary) rgba(0,0,0,0.1)", borderTopColor: "var(--color-primary)" }}></div>
+            <p className="muted">Yükleniyor...</p>
+          </div>
+        ) : users.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "48px" }}>
+            <p className="muted" style={{ fontSize: "1rem" }}>Henüz kullanıcı bulunmuyor</p>
+          </div>
         ) : (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Kullanıcı Adı</th>
-                <th>Rol</th>
-                <th>Oluşturulma</th>
-                <th>İşlemler</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((u) => (
-                <tr key={u.id}>
-                  <td>{u.id}</td>
-                  <td>{u.username}</td>
-                  <td>{u.is_super_admin === 1 ? "Üst Admin" : "Admin"}</td>
-                  <td>
-                    {u.created_at
-                      ? u.created_at.replace("T", " ").slice(0, 19)
-                      : "-"}
-                  </td>
-                  <td>
-                    <button
-                      className="btn-small"
-                      onClick={() => handleEditUser(u)}
-                      disabled={updatingId === u.id}
-                      style={{ marginRight: "4px" }}
-                    >
-                      Düzenle
-                    </button>
-                    <button
-                      className="btn-small"
-                      onClick={() => handleChangePassword(u)}
-                      disabled={updatingId === u.id}
-                      style={{ marginRight: "4px" }}
-                    >
-                      Şifre
-                    </button>
-                    <button
-                      className="btn-small"
-                      onClick={() => handleDeleteUser(u)}
-                      disabled={updatingId === u.id}
-                      style={{ backgroundColor: "#dc3545", color: "#fff" }}
-                    >
-                      Sil
-                    </button>
-                  </td>
+          <div style={{ overflowX: "auto" }}>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Kullanıcı Adı</th>
+                  <th>Rol</th>
+                  <th>Oluşturulma</th>
+                  <th>İşlemler</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {users.map((u) => (
+                  <tr key={u.id}>
+                    <td style={{ fontWeight: "700", color: "var(--primary-color)" }}>{u.id}</td>
+                    <td style={{ fontWeight: "600" }}>{u.username}</td>
+                    <td>
+                      <span
+                        style={{
+                          padding: "4px 12px",
+                          borderRadius: "12px",
+                          fontSize: "0.75rem",
+                          fontWeight: "600",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.05em",
+                          background: u.is_super_admin === 1 
+                            ? "var(--color-primary)"
+                            : "var(--color-success)",
+                          color: "white",
+                        }}
+                      >
+                        {u.is_super_admin === 1 ? "Üst Admin" : "Admin"}
+                      </span>
+                    </td>
+                    <td>
+                      {u.created_at
+                        ? u.created_at.replace("T", " ").slice(0, 19)
+                        : "-"}
+                    </td>
+                    <td>
+                      <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                        <button
+                          className="btn-small"
+                          onClick={() => handleEditUser(u)}
+                          disabled={updatingId === u.id}
+                          style={{ background: "var(--color-info)" }}
+                        >
+                          Düzenle
+                        </button>
+                        <button
+                          className="btn-small"
+                          onClick={() => handleChangePassword(u)}
+                          disabled={updatingId === u.id}
+                          style={{ background: "var(--color-warning)", color: "#000" }}
+                        >
+                          Şifre
+                        </button>
+                        <button
+                          className="btn-small"
+                          onClick={() => handleDeleteUser(u)}
+                          disabled={updatingId === u.id}
+                          style={{ background: "var(--color-danger)" }}
+                        >
+                          Sil
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
-        {error && <p className="muted">{error}</p>}
       </div>
     </div>
   );
 }
-
-

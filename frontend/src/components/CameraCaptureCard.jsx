@@ -1,7 +1,7 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import API from "../api";
 
-const AUTO_CAPTURE_INTERVAL = 3000; // ms
+const AUTO_CAPTURE_INTERVAL = 3000;
 
 export default function CameraCaptureCard({ onCreated }) {
   const videoRef = useRef(null);
@@ -12,6 +12,12 @@ export default function CameraCaptureCard({ onCreated }) {
   const [autoDetect, setAutoDetect] = useState(true);
   const [error, setError] = useState("");
   const sendingRef = useRef(false);
+  const onCreatedRef = useRef(onCreated);
+
+  // onCreated callback'ini ref'te tut
+  useEffect(() => {
+    onCreatedRef.current = onCreated;
+  }, [onCreated]);
 
   const toggleCamera = async () => {
     if (active) {
@@ -23,13 +29,18 @@ export default function CameraCaptureCard({ onCreated }) {
       setError("");
     } else {
       try {
-        const newStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        const newStream = await navigator.mediaDevices.getUserMedia({ 
+          video: { 
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            facingMode: "environment"
+          } 
+        });
         setStream(newStream);
         setActive(true);
         setError("");
       } catch (err) {
-        console.error(err);
-        setError("Kamera erişimi reddedildi veya bulunamadı");
+        setError("Kamera erişimi reddedildi veya bulunamadı. Lütfen tarayıcı izinlerini kontrol edin.");
       }
     }
   };
@@ -40,28 +51,8 @@ export default function CameraCaptureCard({ onCreated }) {
     }
   }, [stream, active]);
 
-  useEffect(() => {
-    if (!active || !autoDetect) return undefined;
-    const interval = setInterval(() => {
-      if (!sendingRef.current) {
-        captureFrame({ auto: true });
-      }
-    }, AUTO_CAPTURE_INTERVAL);
-    return () => clearInterval(interval);
-  }, [active, autoDetect]);
-
-  const captureFrame = async ({ auto = false } = {}) => {
-    if (!videoRef.current) return;
-    try {
-      const blob = await grabFrameBlob();
-      await sendFrame(blob, auto);
-    } catch (err) {
-      setError(err.message);
-    }
-  };
-
-  const grabFrameBlob = () =>
-    new Promise((resolve, reject) => {
+  const grabFrameBlob = useCallback(() => {
+    return new Promise((resolve, reject) => {
       if (!videoRef.current) {
         reject(new Error("Kamera hazır değil"));
         return;
@@ -83,8 +74,9 @@ export default function CameraCaptureCard({ onCreated }) {
         0.92
       );
     });
+  }, []);
 
-  const sendFrame = async (blob, auto = false) => {
+  const sendFrame = useCallback(async (blob, auto = false) => {
     const fd = new FormData();
     fd.append("file", blob, auto ? "auto_capture.jpg" : "capture.jpg");
     sendingRef.current = true;
@@ -103,7 +95,7 @@ export default function CameraCaptureCard({ onCreated }) {
         const errData = await res.json().catch(() => ({}));
         throw new Error(errData.detail || "Yükleme hatası oluştu");
       }
-      onCreated?.();
+      onCreatedRef.current?.();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -111,34 +103,59 @@ export default function CameraCaptureCard({ onCreated }) {
       setLoading(false);
       setAutoProcessing(false);
     }
-  };
+  }, []);
+
+  const captureFrame = useCallback(async ({ auto = false } = {}) => {
+    if (!videoRef.current) return;
+    try {
+      const blob = await grabFrameBlob();
+      await sendFrame(blob, auto);
+    } catch (err) {
+      setError(err.message);
+    }
+  }, [grabFrameBlob, sendFrame]);
+
+  useEffect(() => {
+    if (!active || !autoDetect) return undefined;
+    const interval = setInterval(() => {
+      if (!sendingRef.current && videoRef.current) {
+        captureFrame({ auto: true });
+      }
+    }, AUTO_CAPTURE_INTERVAL);
+    return () => clearInterval(interval);
+  }, [active, autoDetect, captureFrame]);
 
   return (
     <div className="card">
       <h2>Canlı Kameradan Plaka Tanıma</h2>
-      <button onClick={toggleCamera} style={{ marginBottom: "12px" }}>
+      <button 
+        onClick={toggleCamera} 
+        className="camera-toggle-btn"
+        style={{ marginBottom: "16px" }}
+      >
         {active ? "Kamerayı Kapat" : "Kamerayı Başlat"}
       </button>
 
       {active && (
-        <div style={{ marginBottom: "12px" }}>
-          <label style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+        <div className="auto-detect-toggle">
+          <label>
             <input
               type="checkbox"
               checked={autoDetect}
               onChange={(e) => setAutoDetect(e.target.checked)}
             />
-            Otomatik plaka algılama
+            <span>Otomatik plaka algılama (3 saniyede bir)</span>
           </label>
           {autoProcessing && (
-            <p className="muted" style={{ margin: "4px 0 0" }}>
-              Otomatik algılama çalışıyor...
-            </p>
+            <span className="muted" style={{ fontSize: "0.75rem" }}>
+              <span className="loading-spinner" style={{ marginRight: "4px" }}></span>
+              Algılanıyor...
+            </span>
           )}
         </div>
       )}
 
-      {error && <p style={{ color: "red" }}>{error}</p>}
+      {error && <div className="error-message">{error}</div>}
 
       {active && (
         <>
@@ -146,15 +163,23 @@ export default function CameraCaptureCard({ onCreated }) {
             ref={videoRef}
             autoPlay
             playsInline
-            style={{
-              width: "100%",
-              borderRadius: "12px",
-              border: "2px solid #ccc",
-            }}
+            muted
+            className="camera-video"
           />
           <div style={{ marginTop: "12px" }}>
-            <button onClick={() => captureFrame()} disabled={loading}>
-              {loading ? "Yükleniyor..." : "Fotoğraf Çek ve Gönder"}
+            <button 
+              onClick={() => captureFrame()} 
+              disabled={loading}
+              className="capture-btn"
+            >
+              {loading ? (
+                <>
+                  <span className="loading-spinner"></span>
+                  Yükleniyor...
+                </>
+              ) : (
+                "Fotoğraf Çek ve Gönder"
+              )}
             </button>
           </div>
         </>

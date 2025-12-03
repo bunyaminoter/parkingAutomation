@@ -8,7 +8,10 @@ export default function UploadCard({ onCreated }) {
 
   const onSubmit = async (e) => {
     e.preventDefault();
-    if (!file) return;
+    if (!file) {
+      setError("Lütfen bir dosya seçin");
+      return;
+    }
     setLoading(true);
     setError("");
 
@@ -18,7 +21,7 @@ export default function UploadCard({ onCreated }) {
 
       const res = await fetch(API.base + API.uploadImage, {
         method: "POST",
-        body: fd, // FormData gönderiliyor
+        body: fd,
       });
 
       if (!res.ok) {
@@ -26,8 +29,9 @@ export default function UploadCard({ onCreated }) {
         throw new Error(errData.detail || "Yükleme hatası oluştu");
       }
 
-      // Başarılı olursa input sıfırlanır
       setFile(null);
+      const fileInput = document.getElementById("file-input");
+      if (fileInput) fileInput.value = "";
       onCreated?.();
     } catch (err) {
       setError(err.message);
@@ -40,15 +44,40 @@ export default function UploadCard({ onCreated }) {
     <div className="card">
       <h2>Resimden Plaka Tanıma</h2>
       <form onSubmit={onSubmit}>
-        <input
-          type="file"
-          accept="image/*"
-          onChange={(e) => setFile(e.target.files?.[0] || null)}
-        />
-        <button disabled={!file || loading}>
-          {loading ? "Yükleniyor..." : "Yükle"}
+        <div className="form-group">
+          <label htmlFor="file-input">Resim Dosyası</label>
+          <input
+            id="file-input"
+            type="file"
+            accept="image/*"
+            onChange={(e) => setFile(e.target.files?.[0] || null)}
+            disabled={loading}
+          />
+          {file && (
+            <div style={{ 
+              marginTop: "8px", 
+              fontSize: "0.875rem", 
+              color: "var(--color-text-secondary)",
+              padding: "8px 12px",
+              background: "var(--color-bg-secondary)",
+              borderRadius: "var(--radius-sm)",
+              border: "1px solid var(--color-border)"
+            }}>
+              Seçilen: <strong>{file.name}</strong> ({(file.size / 1024).toFixed(2)} KB)
+            </div>
+          )}
+        </div>
+        <button type="submit" disabled={!file || loading}>
+          {loading ? (
+            <>
+              <span className="loading-spinner"></span>
+              Yükleniyor...
+            </>
+          ) : (
+            "Yükle ve Tanı"
+          )}
         </button>
-        {error && <p className="muted">{error}</p>}
+        {error && <div className="error-message">{error}</div>}
       </form>
     </div>
   );
