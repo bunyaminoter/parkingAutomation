@@ -3,7 +3,6 @@ const API = {
   wsBase: "ws://localhost:8000",
   manualEntry: "/api/manual_entry",
   uploadImage: "/api/upload/image",
-  uploadVideo: "/api/upload/video",
   getRecords: "/api/parking_records",
   getRecordsByPlate: (plate) => `/api/parking_records/by_plate/${encodeURIComponent(plate)}`,
   createRecord: "/api/parking_records",

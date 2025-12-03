@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import API from "../api";
 
-export default function UploadCard({ type, onCreated }) {
+export default function UploadCard({ onCreated }) {
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -16,9 +16,7 @@ export default function UploadCard({ type, onCreated }) {
       const fd = new FormData();
       fd.append("file", file);
 
-      const url = type === "image" ? API.uploadImage : API.uploadVideo;
-
-      const res = await fetch(API.base + url, {
+      const res = await fetch(API.base + API.uploadImage, {
         method: "POST",
         body: fd, // FormData gönderiliyor
       });
@@ -40,11 +38,11 @@ export default function UploadCard({ type, onCreated }) {
 
   return (
     <div className="card">
-      <h2>{type === "image" ? "Resimden Plaka Tanıma" : "Kameradan Plaka Tanıma (Eklenecek)"}</h2>
+      <h2>Resimden Plaka Tanıma</h2>
       <form onSubmit={onSubmit}>
         <input
           type="file"
-          accept={type === "image" ? "image/*" : "video/*"}
+          accept="image/*"
           onChange={(e) => setFile(e.target.files?.[0] || null)}
         />
         <button disabled={!file || loading}>

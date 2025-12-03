@@ -64,7 +64,7 @@ export default function AdminPage() {
           <ManualEntryCard onCreated={triggerRefresh} />
         </div>
         <div className="col-6">
-          <UploadCard type="image" onCreated={triggerRefresh} />
+          <UploadCard onCreated={triggerRefresh} />
           <div style={{ height: "16px" }}></div>
         </div>
         <div className="col-12">
