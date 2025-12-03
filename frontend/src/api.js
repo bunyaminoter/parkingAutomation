@@ -9,6 +9,7 @@ const API = {
   createRecord: "/api/parking_records",
   completeRecord: (recordId) => `/api/parking_records/${recordId}/exit`,
   updatePlate: (recordId) => `/api/parking_records/${recordId}/plate`,
+  deleteRecord: (recordId) => `/api/parking_records/${recordId}`,
   recordsStream: "/ws/parking_records",
   login: "/api/login",
   superAdminLogin: "/api/super_admin/login",

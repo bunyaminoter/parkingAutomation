@@ -706,6 +706,31 @@ def update_parking_plate(
 
 
 # --------------------------------------------------
+# 🔹 Park kaydı silme (admin panelinden)
+# --------------------------------------------------
+@app.delete("/api/parking_records/{record_id}")
+def delete_parking_record(
+    background_tasks: BackgroundTasks,
+    record_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    Verilen ID'ye ait park kaydını siler.
+    """
+    record = db.query(models.ParkingRecord).filter(models.ParkingRecord.id == record_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Park kaydı bulunamadı")
+
+    db.delete(record)
+    db.commit()
+
+    if background_tasks:
+        background_tasks.add_task(broadcast_latest_records)
+
+    return {"success": True, "message": "Park kaydı silindi", "id": record_id}
+
+
+# --------------------------------------------------
 # 🔹 Kullanıcı listeleme (üst admin paneli)
 # --------------------------------------------------
 @app.get("/api/users", response_model=List[UserOut])

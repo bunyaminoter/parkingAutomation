@@ -97,6 +97,22 @@ export default function RecordsTable({ forceRefreshKey = 0 }) {
     }
   };
 
+  const handleDelete = async (recordId) => {
+    const confirmDelete = window.confirm(
+      `ID=${recordId} olan park kaydını silmek istediğinize emin misiniz?`
+    );
+    if (!confirmDelete) return;
+
+    try {
+      await fetchJSON(API.base + API.deleteRecord(recordId), {
+        method: "DELETE",
+      });
+      await fetchLatest();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const handleEditPlate = async (record) => {
     const current = record.plate_number || "";
     const next = window.prompt("Yeni plaka numarasını girin:", current);
@@ -188,6 +204,13 @@ export default function RecordsTable({ forceRefreshKey = 0 }) {
                       {completing.has(r.id) ? "Çıkış yapılıyor..." : "Çıkış Yap"}
                     </button>
                   )}
+                  <button
+                    onClick={() => handleDelete(r.id)}
+                    className="btn-small"
+                    style={{ marginLeft: "6px" }}
+                  >
+                    Sil
+                  </button>
                 </td>
               </tr>
             ))}
