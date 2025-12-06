@@ -6,6 +6,56 @@ import "./UserPage.css";
 
 const AUTO_CAPTURE_INTERVAL = 3000; // ms
 
+const InvoiceTicket = ({ record }) => {
+  //  ÇIKIŞ KONTROLÜ
+  if (!record || !record.exit_time) return null;
+
+  const formatDate = (dateStr) => {
+    if (!dateStr) return "-";
+    return new Date(dateStr).toLocaleString("tr-TR", {
+      day: 'numeric', month: 'long', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    });
+  };
+
+  return (
+    <div className="invoice-ticket fade-in">
+      <div className="invoice-header">
+        <h3>La Parque</h3>
+        <p>HİZMET FATURASI</p>
+      </div>
+      <div className="invoice-body">
+        <div className="invoice-row">
+          <span className="inv-label">PLAKA NO:</span>
+          <span className="inv-value">{record.plate_number}</span>
+        </div>
+        <div className="invoice-row">
+          <span className="inv-label">GİRİŞ ZAMANI:</span>
+          <span className="inv-value">{formatDate(record.entry_time)}</span>
+        </div>
+        <div className="invoice-row">
+          <span className="inv-label">ÇIKIŞ ZAMANI:</span>
+          <span className="inv-value">{formatDate(record.exit_time)}</span>
+        </div>
+
+        <div className="invoice-divider">--------------------------------</div>
+
+        <div className="invoice-row total">
+          <span className="inv-label">TOPLAM TUTAR:</span>
+          <span className="inv-value">
+            {typeof record.fee === "number" ? `${record.fee.toFixed(2)} ₺` : "0.00 ₺"}
+          </span>
+        </div>
+      </div>
+      <div className="invoice-footer">
+        <p>Bizi tercih ettiğiniz için teşekkürler.</p>
+        <p>La Parque Otopark İşletmeleri</p>
+      </div>
+    </div>
+  );
+};
+// ------------------------------------
+
 export default function UserPage() {
   const videoRef = useRef(null);
   const sendingRef = useRef(false);
@@ -83,12 +133,12 @@ export default function UserPage() {
       if (typeof confValue === "number") {
         fd.append("confidence", String(confValue));
       }
-      // Admin tarafındaki manuel_entry endpoint'ini kullanarak giriş/çıkış kaydı oluştur
+      // Giriş/Çıkış isteği gönder
       await fetch(API.base + API.manualEntry, {
         method: "POST",
         body: fd,
       });
-      // Oturum içi "giriş yapan araçlar" listesine ekle
+      // Oturum listesine ekle
       setSessionEntries((prev) => [
         { plate_number: plate, time: new Date().toISOString() },
         ...prev,
@@ -139,11 +189,11 @@ export default function UserPage() {
           setRecognizedPlate(data.plate_number);
           setConfidence(data.confidence);
 
-          // Giriş kaydı oluştur ve geçmişi getir
+          // Giriş/Çıkış işlemini yap ve geçmişi güncelle
           await registerEntry(data.plate_number, data.confidence);
           await fetchHistory(data.plate_number);
 
-          // Otomatik modda başarılı tanıma sonrası durdur
+          // Otomatik modda ise durdur (tek seferlik işlem)
           if (auto) {
             setAutoDetect(false);
           }
@@ -207,9 +257,9 @@ export default function UserPage() {
                   className="camera-video"
                 />
                 <div className="capture-section">
-                  <button 
-                    onClick={captureAndRecognize} 
-                    disabled={loading} 
+                  <button
+                    onClick={() => captureAndRecognize(false)}
+                    disabled={loading}
                     className="capture-btn"
                   >
                     {loading ? "Tanınıyor..." : "Fotoğraf Çek ve Plaka Tanı"}
@@ -233,8 +283,17 @@ export default function UserPage() {
                   <span className="label">Güven:</span>
                   <span className="value">%{(confidence * 100).toFixed(1)}</span>
                 </div>
+
+                {/* --- SADECE ÇIKIŞ YAPAN ARAÇLAR İÇİN FATURA --- */}
+                {history.length > 0 && (
+                   <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'center' }}>
+                     <InvoiceTicket record={history[0]} />
+                   </div>
+                )}
+                {/* ----------------------------------------------- */}
+
                 <div className="history">
-                  <h3>Geçmiş Giriş / Çıkışlar</h3>
+                  <h3>Geçmiş Kayıtlar</h3>
                   {history.length === 0 ? (
                     <p className="muted" style={{ textAlign: "center", padding: "20px" }}>
                       Bu plaka için geçmiş kayıt bulunamadı.
@@ -257,8 +316,8 @@ export default function UserPage() {
                               )}
                             </div>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                              <span style={{ 
-                                fontSize: "0.75rem", 
+                              <span style={{
+                                fontSize: "0.75rem",
                                 color: "var(--color-text-muted)",
                                 padding: "4px 8px",
                                 background: r.exit_time ? "var(--color-bg-secondary)" : "#d1fae5",
@@ -315,4 +374,3 @@ export default function UserPage() {
     </div>
   );
 }
-

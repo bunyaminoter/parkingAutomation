@@ -1,8 +1,8 @@
 .user-page {
-  min-height: 100vh;
-  background: linear-gradient(135deg, #1c0f45 0%, #410091 50%, #0000cd 100%);
-  background-attachment: fixed;
+  max-width: 1400px;
+  margin: 0 auto;
   padding: var(--spacing-xl) var(--spacing-lg);
+  min-height: 100vh;
 }
 
 .user-header {
@@ -354,4 +354,105 @@
   .value {
     font-size: 1.125rem;
   }
+}
+
+/* --- FATURA / MAKBUZ STİLLERİ --- */
+.invoice-ticket {
+  background: #fff;
+  color: #000;
+  font-family: 'Courier New', Courier, monospace;
+  padding: 24px;
+  width: 100%;
+  max-width: 340px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border: 1px solid #e5e7eb;
+  position: relative;
+  /* Kağıt efekti için opsiyonel tırtıklı kenar (basit) */
+  background-image: linear-gradient(135deg, #ffffff 25%, transparent 25%),
+                    linear-gradient(225deg, #ffffff 25%, transparent 25%),
+                    linear-gradient(45deg, #ffffff 25%, transparent 25%),
+                    linear-gradient(315deg, #ffffff 25%, #e5e5e5 25%);
+  background-position:  10px 0, 10px 0, 0 0, 0 0;
+  background-size: 20px 20px;
+  background-repeat: repeat;
+  /* Düz beyaz override */
+  background: #ffffff;
+  border-radius: 2px;
+}
+
+.invoice-header {
+  text-align: center;
+  border-bottom: 2px dashed #000;
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+}
+
+.invoice-header h3 {
+  font-size: 1.5rem;
+  font-weight: 800;
+  margin: 0 0 4px 0;
+  color: #000;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.invoice-header p {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #333;
+  margin: 0;
+}
+
+.invoice-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.invoice-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.inv-label {
+  font-weight: 600;
+  color: #444;
+}
+
+.inv-value {
+  font-weight: 700;
+  text-align: right;
+  max-width: 60%;
+}
+
+.invoice-divider {
+  text-align: center;
+  color: #999;
+  font-size: 0.8rem;
+  letter-spacing: 3px;
+  margin: 8px 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.invoice-row.total {
+  margin-top: 4px;
+  font-size: 1.2rem;
+  border-bottom: 2px solid #000;
+  border-top: 2px solid #000;
+  padding: 8px 0;
+}
+
+.invoice-footer {
+  margin-top: 20px;
+  text-align: center;
+  font-size: 0.75rem;
+  color: #555;
+}
+
+.invoice-footer p {
+  margin: 4px 0;
 }

@@ -47,7 +47,13 @@ def login(
     
     if not user:
         raise HTTPException(status_code=401, detail="Geçersiz kullanıcı adı veya şifre")
-    
+
+    if user.is_super_admin == 1:
+        raise HTTPException(
+            status_code=403,
+            detail="Üst Admin yetkisine sahipsiniz. Lütfen Üst Admin Giriş sayfasını kullanın."
+        )
+
     # Session token oluştur
     session_token = create_session_token(user.id, user.username, remember_me)
     
