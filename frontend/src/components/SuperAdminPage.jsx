@@ -10,7 +10,7 @@ export default function SuperAdminPage() {
   const [error, setError] = useState("");
   const [updatingId, setUpdatingId] = useState(null);
   const [creating, setCreating] = useState(false);
-  const [newUsername, setNewUsername] = useState("");
+  const [newEmail, setNewEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newIsSuper, setNewIsSuper] = useState(false);
   const navigate = useNavigate();
@@ -59,19 +59,26 @@ export default function SuperAdminPage() {
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
-    if (!newUsername.trim() || !newPassword.trim()) return;
+    if (!newEmail.trim() || !newPassword.trim()) return;
+    
+    // Email doğrulama
+    if (!newEmail.includes("@") || !newEmail.split("@")[1].includes(".")) {
+      setError("Geçerli bir e-posta adresi giriniz");
+      return;
+    }
+    
     try {
       setCreating(true);
       await fetchJSON(API.base + API.createUser, {
         method: "POST",
         credentials: "include",
         body: JSON.stringify({
-          username: newUsername.trim(),
+          email: newEmail.trim(),
           password: newPassword.trim(),
           is_super_admin: newIsSuper ? 1 : 0,
         }),
       });
-      setNewUsername("");
+      setNewEmail("");
       setNewPassword("");
       setNewIsSuper(false);
       await loadUsers();
@@ -84,9 +91,13 @@ export default function SuperAdminPage() {
 
   const handleChangePassword = async (user) => {
     const pwd = window.prompt(
-      `Kullanıcı için yeni şifreyi girin: ${user.username}`
+      `Kullanıcı için yeni şifreyi girin: ${user.email}`
     );
     if (!pwd || pwd.trim() === "") return;
+    if (pwd.trim().length < 6) {
+      setError("Şifre en az 6 karakter olmalıdır");
+      return;
+    }
     try {
       setUpdatingId(user.id);
       await fetchJSON(API.base + API.changeUserPassword(user.id), {
@@ -103,19 +114,25 @@ export default function SuperAdminPage() {
   };
 
   const handleEditUser = async (user) => {
-    const username = window.prompt(
-      "Yeni kullanıcı adını girin (boş bırakılırsa değişmez):",
-      user.username
+    const email = window.prompt(
+      "Yeni e-posta adresini girin (boş bırakılırsa değişmez):",
+      user.email
     );
-    if (username === null) return;
+    if (email === null) return;
+
+    // Email doğrulama
+    if (email.trim() && (!email.includes("@") || !email.split("@")[1].includes("."))) {
+      setError("Geçerli bir e-posta adresi giriniz");
+      return;
+    }
 
     const makeSuper = window.confirm(
       "Bu kullanıcı ÜST ADMIN olsun mu? OK = EVET, İptal = HAYIR"
     );
 
     const payload = {};
-    if (username.trim() && username.trim() !== user.username) {
-      payload.username = username.trim();
+    if (email.trim() && email.trim() !== user.email) {
+      payload.email = email.trim();
     }
     payload.is_super_admin = makeSuper ? 1 : 0;
 
@@ -135,7 +152,7 @@ export default function SuperAdminPage() {
   };
 
   const handleDeleteUser = async (user) => {
-    if (!window.confirm(`Kullanıcı silinsin mi? (${user.username})`)) return;
+    if (!window.confirm(`Kullanıcı silinsin mi? (${user.email})`)) return;
     try {
       setUpdatingId(user.id);
       await fetchJSON(API.base + API.deleteUser(user.id), {
@@ -189,13 +206,13 @@ export default function SuperAdminPage() {
           }}
         >
           <div className="form-group">
-            <label>Yeni Kullanıcı Adı</label>
+            <label>Yeni E-posta</label>
             <input
-              type="text"
-              value={newUsername}
-              onChange={(e) => setNewUsername(e.target.value)}
+              type="email"
+              value={newEmail}
+              onChange={(e) => setNewEmail(e.target.value)}
               disabled={creating}
-              placeholder="Kullanıcı adı"
+              placeholder="ornek@email.com"
             />
           </div>
           <div className="form-group">
@@ -222,7 +239,7 @@ export default function SuperAdminPage() {
           </div>
           <button
             type="submit"
-            disabled={creating || !newUsername.trim() || !newPassword.trim()}
+            disabled={creating || !newEmail.trim() || !newPassword.trim()}
             style={{ gridColumn: "span 1" }}
           >
             {creating ? (
@@ -253,7 +270,7 @@ export default function SuperAdminPage() {
               <thead>
                 <tr>
                   <th>ID</th>
-                  <th>Kullanıcı Adı</th>
+                  <th>E-posta</th>
                   <th>Rol</th>
                   <th>Oluşturulma</th>
                   <th>İşlemler</th>
@@ -263,7 +280,7 @@ export default function SuperAdminPage() {
                 {users.map((u) => (
                   <tr key={u.id}>
                     <td style={{ fontWeight: "700", color: "var(--primary-color)" }}>{u.id}</td>
-                    <td style={{ fontWeight: "600" }}>{u.username}</td>
+                    <td style={{ fontWeight: "600" }}>{u.email}</td>
                     <td>
                       <span
                         style={{

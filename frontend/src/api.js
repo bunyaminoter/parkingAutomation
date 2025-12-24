@@ -19,6 +19,10 @@ const API = {
   createUser: "/api/users",
   updateUser: (userId) => `/api/users/${userId}`,
   deleteUser: (userId) => `/api/users/${userId}`,
+  forgotPassword: "/api/forgot-password",
+  resetPassword: "/api/reset-password",
+  verifyResetToken: (token) => `/api/verify-reset-token/${token}`,
+  updateMyInfo: "/api/users/me/update",
 };
 
 export default API;

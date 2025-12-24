@@ -1,12 +1,38 @@
 """
 Parking Automation API - Main application file
 """
+import logging
+import os
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 
+# .env dosyasını yükle (eğer varsa)
+try:
+    from dotenv import load_dotenv
+    # Proje kök dizininde .env dosyasını yükle
+    env_path = Path(__file__).parent.parent / ".env"
+    if env_path.exists():
+        load_dotenv(dotenv_path=env_path)
+        logging.getLogger(__name__).info(f"✅ .env dosyası yüklendi: {env_path}")
+    else:
+        logging.getLogger(__name__).warning(f"⚠️  .env dosyası bulunamadı: {env_path}")
+except ImportError:
+    logging.getLogger(__name__).warning("⚠️  python-dotenv yüklü değil. .env dosyası yüklenemiyor.")
+
 from backend.database import ensure_schema
+
+# Logging konfigürasyonu
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+    ]
+)
+logger = logging.getLogger(__name__)
 from backend.routes import (
     auth_routes,
     parking_routes,
@@ -18,6 +44,22 @@ from backend.routes import (
 
 # Veritabanı şemasını kontrol et
 ensure_schema()
+
+# SMTP ayarlarını kontrol et ve logla
+smtp_user = os.getenv("SMTP_USER", "")
+smtp_password = os.getenv("SMTP_PASSWORD", "")
+dev_mode = os.getenv("DEV_MODE", "false").lower() == "true"
+
+if dev_mode:
+    logger.info("🔧 Development modu aktif - Email gönderilmeyecek, token console'da görüntülenecek")
+elif not smtp_user or not smtp_password:
+    logger.warning(
+        "⚠️  SMTP ayarları yapılandırılmamış! "
+        "Şifre sıfırlama özelliği çalışmayacak. "
+        "Lütfen SMTP_USER ve SMTP_PASSWORD environment variables'larını ayarlayın."
+    )
+else:
+    logger.info(f"✅ SMTP ayarları yapılandırıldı: {smtp_user} @ {os.getenv('SMTP_HOST', 'smtp.gmail.com')}")
 
 # --------------------------------------------------
 # 🔹 Uygulama nesnesi oluştur

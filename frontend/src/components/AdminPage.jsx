@@ -55,9 +55,18 @@ export default function AdminPage() {
     <div className="container">
       <div className="admin-header">
         <h1>Admin Paneli - Parking Automation</h1>
-        <button onClick={handleLogout} className="logout-btn">
-          Çıkış Yap
-        </button>
+        <div style={{ display: "flex", gap: "10px" }}>
+          <button 
+            onClick={() => navigate("/update-user-info")} 
+            className="logout-btn"
+            style={{ background: "var(--color-info)" }}
+          >
+            Bilgilerimi Güncelle
+          </button>
+          <button onClick={handleLogout} className="logout-btn">
+            Çıkış Yap
+          </button>
+        </div>
       </div>
       <div className="admin-grid-top">
         <ManualEntryCard onCreated={triggerRefresh} />

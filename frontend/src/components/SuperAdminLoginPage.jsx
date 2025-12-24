@@ -4,7 +4,7 @@ import API from "../api";
 import "./LoginPage.css";
 
 export default function SuperAdminLoginPage() {
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -15,9 +15,16 @@ export default function SuperAdminLoginPage() {
     setLoading(true);
     setError("");
 
+    // Email doğrulama
+    if (!email.includes("@") || !email.split("@")[1].includes(".")) {
+      setError("Geçerli bir e-posta adresi giriniz");
+      setLoading(false);
+      return;
+    }
+
     try {
       const formData = new FormData();
-      formData.append("username", username);
+      formData.append("email", email);
       formData.append("password", password);
 
       const response = await fetch(API.base + API.superAdminLogin, {
@@ -50,14 +57,15 @@ export default function SuperAdminLoginPage() {
 
         <form onSubmit={handleLogin} className="login-form">
           <div className="form-group">
-            <label htmlFor="username">Kullanıcı Adı:</label>
+            <label htmlFor="email">E-posta:</label>
             <input
-              type="text"
-              id="username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              type="email"
+              id="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               required
               disabled={loading}
+              placeholder="ornek@email.com"
             />
           </div>
 

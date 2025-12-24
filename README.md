@@ -130,8 +130,54 @@ npm run dev
 - Resim/Kamera kalitesinin yeterli olduğundan emin olun
 - Plaka numarasının net görünür olduğundan emin olun
 
+## 📧 Email Konfigürasyonu (Şifre Sıfırlama)
+
+Şifre sıfırlama özelliğinin çalışması için SMTP ayarlarını yapılandırmanız gerekir:
+
+### 1. Environment Variables Ayarlama
+
+Proje kök dizininde `.env` dosyası oluşturun (`.env.example` dosyasını referans alabilirsiniz):
+
+```bash
+# SMTP Email Configuration
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-email@gmail.com
+SMTP_PASSWORD=your-app-password
+SMTP_FROM_EMAIL=your-email@gmail.com
+FRONTEND_URL=http://localhost:5173
+```
+
+### 2. Gmail için App Password Oluşturma
+
+Gmail kullanıyorsanız:
+
+1. Google Hesabınıza giriş yapın
+2. [App Passwords](https://myaccount.google.com/apppasswords) sayfasına gidin
+3. "Uygulama seç" → "E-posta" seçin
+4. "Cihaz seç" → "Diğer (Özel ad)" → "Parking Automation" yazın
+5. "Oluştur" butonuna tıklayın
+6. Oluşturulan 16 haneli şifreyi `SMTP_PASSWORD` olarak kullanın
+
+### 3. Development Modu
+
+Test için email göndermek istemiyorsanız, `.env` dosyasına ekleyin:
+
+```bash
+DEV_MODE=true
+```
+
+Bu modda email gönderilmez, şifre sıfırlama token'ı console'da görüntülenir.
+
+### 4. Diğer Email Sağlayıcıları
+
+- **Outlook/Hotmail**: `smtp-mail.outlook.com`, port `587`
+- **Yahoo**: `smtp.mail.yahoo.com`, port `587`
+- **Özel SMTP**: Kendi SMTP sunucu bilgilerinizi kullanın
+
 ## 📝 Notlar
 
 - Sistem sadece plaka numarası ve giriş/çıkış saatlerini tutar
 - Tüm işlemler gerçek zamanlı olarak güncellenir
 - Veritabanı migrasyonları Alembic ile yönetilir
+- Şifre sıfırlama için SMTP ayarları yapılandırılmalıdır

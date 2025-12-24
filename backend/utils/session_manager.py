@@ -12,7 +12,7 @@ SESSION_DURATION_DAYS = 7  # "Beni hatırla" için
 SESSION_DURATION_HOURS = 24  # Normal session için
 
 
-def create_session_token(user_id: int, username: str, remember_me: bool = False) -> str:
+def create_session_token(user_id: int, email: str, remember_me: bool = False) -> str:
     """Yeni session token oluşturur"""
     token = secrets.token_urlsafe(32)
     expires_at = datetime.utcnow() + (
@@ -21,7 +21,7 @@ def create_session_token(user_id: int, username: str, remember_me: bool = False)
     )
     active_sessions[token] = {
         "user_id": user_id,
-        "username": username,
+        "email": email,
         "expires_at": expires_at,
         "remember_me": remember_me
     }

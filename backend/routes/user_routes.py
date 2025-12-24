@@ -11,11 +11,16 @@ from backend.database import SessionLocal
 from backend import models
 from backend.utils.session_manager import get_session_user, SESSION_COOKIE_NAME
 
+
+class UpdateMyInfoRequest(BaseModel):
+    email: Optional[str] = None
+    password: Optional[str] = None
+
 router = APIRouter(prefix="/api", tags=["users"])
 
 
 class UserUpdate(BaseModel):
-    username: Optional[str] = None
+    email: Optional[str] = None
     is_super_admin: Optional[int] = None
 
 
@@ -24,7 +29,7 @@ class PasswordUpdate(BaseModel):
 
 
 class UserCreate(BaseModel):
-    username: str
+    email: str
     password: str
     is_super_admin: int = 0
 
@@ -57,6 +62,23 @@ def require_super_admin(request: Request, db: Session = Depends(get_db)):
     return user
 
 
+def require_auth(request: Request, db: Session = Depends(get_db)):
+    """Giriş yapmış kullanıcı kontrolü yapar"""
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    if not token:
+        raise HTTPException(status_code=401, detail="Session bulunamadı")
+    
+    session = get_session_user(token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Session geçersiz veya süresi dolmuş")
+    
+    user = db.query(models.User).filter(models.User.id == session["user_id"]).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Kullanıcı bulunamadı")
+    
+    return user
+
+
 @router.get("/users")
 def list_users(
     request: Request,
@@ -68,7 +90,7 @@ def list_users(
     return [
         {
             "id": u.id,
-            "username": u.username,
+            "email": u.email,
             "is_super_admin": u.is_super_admin,
             "created_at": u.created_at
         }
@@ -84,17 +106,21 @@ def create_user(
     _current_user: models.User = Depends(require_super_admin)
 ):
     """Yeni kullanıcı oluştur (sadece üst admin)"""
-    # Kullanıcı adı kontrolü
-    existing_user = db.query(models.User).filter(models.User.username == user_data.username).first()
+    # Email doğrulama
+    if "@" not in user_data.email or "." not in user_data.email.split("@")[1]:
+        raise HTTPException(status_code=400, detail="Geçerli bir e-posta adresi giriniz")
+    
+    # Email kontrolü
+    existing_user = db.query(models.User).filter(models.User.email == user_data.email).first()
     if existing_user:
-        raise HTTPException(status_code=400, detail="Bu kullanıcı adı zaten kullanılıyor")
+        raise HTTPException(status_code=400, detail="Bu e-posta adresi zaten kullanılıyor")
     
     # Şifreyi hash'le
     hashed_password = hashlib.md5(user_data.password.encode()).hexdigest()
     
     # Yeni kullanıcı oluştur
     new_user = models.User(
-        username=user_data.username,
+        email=user_data.email,
         password=hashed_password,
         is_super_admin=1 if user_data.is_super_admin else 0
     )
@@ -104,7 +130,7 @@ def create_user(
     
     return {
         "id": new_user.id,
-        "username": new_user.username,
+        "email": new_user.email,
         "is_super_admin": new_user.is_super_admin,
         "created_at": new_user.created_at
     }
@@ -123,16 +149,20 @@ def update_user(
     if not user:
         raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı")
     
-    # Kullanıcı adı güncelleme
-    if user_data.username is not None and user_data.username.strip():
-        # Kullanıcı adı kontrolü (kendisi hariç)
+    # Email güncelleme
+    if user_data.email is not None and user_data.email.strip():
+        # Email doğrulama
+        if "@" not in user_data.email or "." not in user_data.email.split("@")[1]:
+            raise HTTPException(status_code=400, detail="Geçerli bir e-posta adresi giriniz")
+        
+        # Email kontrolü (kendisi hariç)
         existing_user = db.query(models.User).filter(
-            models.User.username == user_data.username.strip(),
+            models.User.email == user_data.email.strip(),
             models.User.id != user_id
         ).first()
         if existing_user:
-            raise HTTPException(status_code=400, detail="Bu kullanıcı adı zaten kullanılıyor")
-        user.username = user_data.username.strip()
+            raise HTTPException(status_code=400, detail="Bu e-posta adresi zaten kullanılıyor")
+        user.email = user_data.email.strip()
     
     # Üst admin durumu güncelleme
     if user_data.is_super_admin is not None:
@@ -143,7 +173,7 @@ def update_user(
     
     return {
         "id": user.id,
-        "username": user.username,
+        "email": user.email,
         "is_super_admin": user.is_super_admin,
         "created_at": user.created_at
     }
@@ -191,4 +221,56 @@ def delete_user(
     db.commit()
     
     return {"success": True, "message": "Kullanıcı silindi"}
+
+
+@router.put("/users/me/update")
+def update_my_info(
+    request: Request,
+    update_data: UpdateMyInfoRequest = Body(...),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_auth)
+):
+    """Kendi kullanıcı bilgilerini güncelle (email ve şifre)"""
+    user = db.query(models.User).filter(models.User.id == current_user.id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı")
+    
+    # Email güncelleme
+    if update_data.email is not None and update_data.email.strip():
+        email = update_data.email.strip()
+        
+        # Email doğrulama
+        if "@" not in email or "." not in email.split("@")[1]:
+            raise HTTPException(status_code=400, detail="Geçerli bir e-posta adresi giriniz")
+        
+        # Email kontrolü (kendisi hariç)
+        existing_user = db.query(models.User).filter(
+            models.User.email == email,
+            models.User.id != user.id
+        ).first()
+        if existing_user:
+            raise HTTPException(status_code=400, detail="Bu e-posta adresi zaten kullanılıyor")
+        
+        user.email = email
+    
+    # Şifre güncelleme
+    if update_data.password is not None and update_data.password.strip():
+        if len(update_data.password.strip()) < 6:
+            raise HTTPException(status_code=400, detail="Şifre en az 6 karakter olmalıdır")
+        
+        hashed_password = hashlib.md5(update_data.password.strip().encode()).hexdigest()
+        user.password = hashed_password
+    
+    db.commit()
+    db.refresh(user)
+    
+    return {
+        "success": True,
+        "message": "Bilgileriniz güncellendi",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "is_super_admin": user.is_super_admin
+        }
+    }
 
