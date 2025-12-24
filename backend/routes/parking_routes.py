@@ -92,7 +92,10 @@ def complete_parking_record(
     fee: float = None,
     db: Session = Depends(get_db)
 ):
-    """Park kaydını tamamla (çıkış işlemi)"""
+    """
+    Park kaydını tamamla (çıkış işlemi) - Admin paneli için
+    Direkt çıkış yapar, payment/QR oluşturmaz
+    """
     record = db.query(models.ParkingRecord).filter(models.ParkingRecord.id == record_id).first()
     if not record:
         raise HTTPException(status_code=404, detail="Park kaydı bulunamadı")
@@ -117,14 +120,12 @@ def complete_parking_record(
     db.commit()
     db.refresh(record)
     
-    response = serialize_record(record)
-    
     # WebSocket broadcast için background task ekle
     if background_tasks:
         from backend.routes.websocket_routes import broadcast_latest_records
         background_tasks.add_task(broadcast_latest_records)
     
-    return response
+    return serialize_record(record)
 
 
 @router.put("/parking_records/{record_id}/plate")
@@ -192,6 +193,21 @@ def manual_entry(
     2. Aktif kayıt (exit_time=None) varsa, çıkış yap
     3. Aktif kayıt yoksa, yeni giriş kaydı oluştur
     """
+    import re
+    
+    # Plaka formatı doğrulama (Türkiye standartları)
+    normalized_plate = plate_number.strip().upper()
+    plate_regex = re.compile(r'^(0[1-9]|[1-7][0-9]|8[0-1])\s?[A-Z]{1,3}\s?\d{2,4}$')
+    
+    if not plate_regex.match(normalized_plate):
+        raise HTTPException(
+            status_code=400,
+            detail="Lütfen Türkiye plaka formatına uygun geçerli bir plaka giriniz. Örnek: 34 ABC 1234"
+        )
+    
+    # Plakayı normalize et (boşlukları temizle)
+    plate_number = re.sub(r'\s+', '', normalized_plate)
+    
     # 1. Son 10 saniye içinde giriş yapılmış mı kontrol et (debounce)
     recent_entry = crud.get_recent_entry_by_plate(db, plate_number, seconds=10)
     if recent_entry:
@@ -213,9 +229,28 @@ def manual_entry(
         # Aktif kayıt varsa, çıkış yap
         exit_record = crud.exit_parking_by_plate(db, plate_number)
         if exit_record:
+            # Ödeme kaydı oluştur
+            payment = crud.create_payment(
+                db=db,
+                amount=exit_record.fee,
+                currency="TRY",
+                parking_record_id=exit_record.id
+            )
+            
+            # Park kaydına payment_id ekle
+            exit_record.payment_id = payment.id
+            db.commit()
+            db.refresh(exit_record)
+            
+            # QR içeriğini hazırla
+            from backend.services.qr_service import create_qr_content, create_qr_json
+            qr_data = create_qr_content(payment)
+            qr_json = create_qr_json(payment)
+            
             if background_tasks:
                 from backend.routes.websocket_routes import broadcast_latest_records
                 background_tasks.add_task(broadcast_latest_records)
+            
             return {
                 "id": exit_record.id,
                 "plate_number": exit_record.plate_number,
@@ -223,7 +258,16 @@ def manual_entry(
                 "exit_time": exit_record.exit_time,
                 "fee": exit_record.fee,
                 "confidence": exit_record.confidence,
-                "action": "exit"
+                "action": "exit",
+                "payment": {
+                    "id": payment.id,
+                    "reference": payment.reference,
+                    "amount": payment.amount,
+                    "currency": payment.currency,
+                    "status": payment.status.value,
+                    "qr_data": qr_data,
+                    "qr_json": qr_json
+                }
             }
     
     # 3. Aktif kayıt yoksa, yeni giriş kaydı oluştur
@@ -311,6 +355,24 @@ def upload_image(
         try:
             exit_record = crud.exit_parking_by_plate(db, plate)
             if exit_record:
+                # Ödeme kaydı oluştur
+                payment = crud.create_payment(
+                    db=db,
+                    amount=exit_record.fee,
+                    currency="TRY",
+                    parking_record_id=exit_record.id
+                )
+                
+                # Park kaydına payment_id ekle
+                exit_record.payment_id = payment.id
+                db.commit()
+                db.refresh(exit_record)
+                
+                # QR içeriğini hazırla
+                from backend.services.qr_service import create_qr_content, create_qr_json
+                qr_data = create_qr_content(payment)
+                qr_json = create_qr_json(payment)
+                
                 response = {
                     "id": exit_record.id,
                     "plate_number": exit_record.plate_number,
@@ -318,7 +380,16 @@ def upload_image(
                     "exit_time": exit_record.exit_time,
                     "fee": exit_record.fee,
                     "confidence": exit_record.confidence,
-                    "action": "exit"
+                    "action": "exit",
+                    "payment": {
+                        "id": payment.id,
+                        "reference": payment.reference,
+                        "amount": payment.amount,
+                        "currency": payment.currency,
+                        "status": payment.status.value,
+                        "qr_data": qr_data,
+                        "qr_json": qr_json
+                    }
                 }
                 # Dosyayı kaydet
                 try:

@@ -2,6 +2,7 @@ import React, { useRef, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../api";
 import { fetchJSON } from "../utils";
+import PaymentQRModal from "./PaymentQRModal";
 import "./UserPage.css";
 
 const AUTO_CAPTURE_INTERVAL = 3000; // ms
@@ -69,6 +70,7 @@ export default function UserPage() {
   const [confidence, setConfidence] = useState(0);
   const [history, setHistory] = useState([]);
   const [sessionEntries, setSessionEntries] = useState([]);
+  const [selectedPayment, setSelectedPayment] = useState(null);
   const navigate = useNavigate();
 
   // Kamera toggle
@@ -134,18 +136,41 @@ export default function UserPage() {
         fd.append("confidence", String(confValue));
       }
       // Giriş/Çıkış isteği gönder
-      await fetch(API.base + API.manualEntry, {
+      const response = await fetch(API.base + API.manualEntry, {
         method: "POST",
         body: fd,
       });
-      // Oturum listesine ekle
-      setSessionEntries((prev) => [
-        { plate_number: plate, time: new Date().toISOString() },
-        ...prev,
-      ]);
+      
+      if (!response.ok) {
+        throw new Error("Giriş/Çıkış işlemi başarısız");
+      }
+      
+      const result = await response.json();
+      
+      // Oturum listesine ekle (sadece giriş için)
+      if (result.action === "entry") {
+        setSessionEntries((prev) => [
+          { plate_number: plate, time: new Date().toISOString() },
+          ...prev,
+        ]);
+      }
+      
+      return result;
     } catch (e) {
       console.error(e);
+      return null;
     }
+  };
+
+  const handlePaymentConfirmed = async (paymentData) => {
+    // Ödeme tamamlandı, geçmişi yenile
+    if (recognizedPlate) {
+      await fetchHistory(recognizedPlate);
+    }
+    // Modal'ı kapat
+    setTimeout(() => {
+      setSelectedPayment(null);
+    }, 2000);
   };
 
   // Fotoğraf çek ve plaka tanı
@@ -190,7 +215,13 @@ export default function UserPage() {
           setConfidence(data.confidence);
 
           // Giriş/Çıkış işlemini yap ve geçmişi güncelle
-          await registerEntry(data.plate_number, data.confidence);
+          const entryResult = await registerEntry(data.plate_number, data.confidence);
+          
+          // Eğer çıkış yapıldıysa ve payment varsa QR modal'ı göster
+          if (entryResult && entryResult.action === "exit" && entryResult.payment) {
+            setSelectedPayment(entryResult.payment);
+          }
+          
           await fetchHistory(data.plate_number);
 
           // Otomatik modda ise durdur (tek seferlik işlem)
@@ -371,6 +402,15 @@ export default function UserPage() {
           </div>
         </div>
       </div>
+      
+      {/* Payment QR Modal */}
+      {selectedPayment && (
+        <PaymentQRModal
+          payment={selectedPayment}
+          onClose={() => setSelectedPayment(null)}
+          onPaymentConfirmed={handlePaymentConfirmed}
+        />
+      )}
     </div>
   );
 }

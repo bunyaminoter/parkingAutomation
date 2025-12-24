@@ -83,10 +83,17 @@ export default function RecordsTable({ forceRefreshKey = 0 }) {
   const handleComplete = async (recordId) => {
     setCompleting((prev) => new Set(prev).add(recordId));
     try {
-      await fetchJSON(API.base + API.completeRecord(recordId), {
+      const response = await fetch(API.base + API.completeRecord(recordId), {
         method: "PUT",
-        headers: { "Content-Type": "application/json" }
+        headers: { "Content-Type": "application/json" },
+        credentials: "include"
       });
+      
+      if (!response.ok) {
+        throw new Error("Çıkış işlemi başarısız");
+      }
+      
+      // Admin panelinde direkt kayıtları yenile (QR modal yok)
       await fetchLatest();
     } catch (err) {
       setError(err.message);
@@ -98,6 +105,7 @@ export default function RecordsTable({ forceRefreshKey = 0 }) {
       });
     }
   };
+
 
   const handleDelete = async (recordId) => {
     const confirmDelete = window.confirm(

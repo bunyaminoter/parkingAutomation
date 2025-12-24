@@ -142,3 +142,99 @@ def get_records_by_plate(db: Session, plate_number: str) -> List[models.ParkingR
         .all()
     )
 
+
+# Payment operations
+def create_payment(
+    db: Session,
+    amount: float,
+    currency: str = "TRY",
+    parking_record_id: Optional[int] = None,
+    receiver_name: str = "La Parque A.Ş.",
+    iban: Optional[str] = None,
+    merchant_code: str = "LAPARQUE001"
+) -> models.Payment:
+    """
+    Yeni ödeme kaydı oluşturur
+    
+    Args:
+        db: Veritabanı session'ı
+        amount: Ödeme tutarı
+        currency: Para birimi (varsayılan: TRY)
+        parking_record_id: İlişkili park kaydı ID
+        receiver_name: Alıcı adı
+        iban: IBAN (None ise otomatik üretilir)
+        merchant_code: Merchant kodu
+    
+    Returns:
+        Oluşturulan Payment kaydı
+    """
+    from backend.services.qr_service import generate_iban
+    
+    # IBAN yoksa üret
+    if not iban:
+        iban = generate_iban()
+    
+    # Reference code üret (payment_id'ye ihtiyaç yok, timestamp + random ile unique)
+    from backend.services.qr_service import generate_reference
+    reference = generate_reference()
+    
+    # Payment oluştur
+    payment = models.Payment(
+        reference=reference,
+        amount=amount,
+        currency=currency,
+        status=models.PaymentStatus.PENDING,
+        parking_record_id=parking_record_id,
+        receiver_name=receiver_name,
+        iban=iban,
+        merchant_code=merchant_code
+    )
+    
+    db.add(payment)
+    db.commit()
+    db.refresh(payment)
+    return payment
+
+
+def get_payment_by_id(db: Session, payment_id: int) -> Optional[models.Payment]:
+    """ID'ye göre ödeme kaydı bulur"""
+    return db.query(models.Payment).filter(models.Payment.id == payment_id).first()
+
+
+def get_payment_by_reference(db: Session, reference: str) -> Optional[models.Payment]:
+    """Reference code'a göre ödeme kaydı bulur"""
+    return db.query(models.Payment).filter(models.Payment.reference == reference).first()
+
+
+def update_payment_status(
+    db: Session,
+    payment_id: int,
+    status: models.PaymentStatus,
+    paid_at: Optional[datetime] = None
+) -> Optional[models.Payment]:
+    """
+    Ödeme durumunu günceller
+    
+    Args:
+        db: Veritabanı session'ı
+        payment_id: Ödeme ID
+        status: Yeni durum
+        paid_at: Ödeme zamanı (PAID ise otomatik ayarlanır)
+    
+    Returns:
+        Güncellenmiş Payment kaydı
+    """
+    payment = db.query(models.Payment).filter(models.Payment.id == payment_id).first()
+    if not payment:
+        return None
+    
+    payment.status = status
+    if status == models.PaymentStatus.PAID and not paid_at:
+        payment.paid_at = datetime.utcnow()
+    elif paid_at:
+        payment.paid_at = paid_at
+    
+    db.commit()
+    db.refresh(payment)
+    return payment
+

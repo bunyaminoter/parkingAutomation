@@ -40,6 +40,7 @@ from backend.routes import (
     user_page_routes,
     websocket_routes,
     health_routes,
+    payment_routes,
 )
 
 # Veritabanı şemasını kontrol et
@@ -92,6 +93,7 @@ app.include_router(parking_routes.router)
 app.include_router(user_routes.router)
 app.include_router(user_page_routes.router)
 app.include_router(websocket_routes.router)
+app.include_router(payment_routes.router)
 
 # --------------------------------------------------
 # 🔹 Frontend dosyalarını sun (React build sonrası)

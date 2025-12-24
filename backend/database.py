@@ -114,6 +114,25 @@ def ensure_schema() -> None:
                     except:
                         pass
                     conn.execute(text("ALTER TABLE users DROP COLUMN IF EXISTS username"))
+        
+        # parking_records.payment_id sütunu
+        if "parking_records" in inspector.get_table_names():
+            pr_columns = {col["name"] for col in inspector.get_columns("parking_records")}
+            if "payment_id" not in pr_columns:
+                logger.info("Adding payment_id column to parking_records table")
+                with engine.begin() as conn:
+                    conn.execute(
+                        text(
+                            "ALTER TABLE parking_records "
+                            "ADD COLUMN IF NOT EXISTS payment_id INTEGER"
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS ix_parking_records_payment_id "
+                            "ON parking_records(payment_id)"
+                        )
+                    )
     except Exception as exc:
         logger.error("Failed to ensure database schema is up-to-date: %s", exc)
         raise

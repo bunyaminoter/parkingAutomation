@@ -23,6 +23,10 @@ const API = {
   resetPassword: "/api/reset-password",
   verifyResetToken: (token) => `/api/verify-reset-token/${token}`,
   updateMyInfo: "/api/users/me/update",
+  createPayment: "/api/payments",
+  getPaymentQR: (paymentId) => `/api/payments/${paymentId}/qr`,
+  confirmPayment: (paymentId) => `/api/payments/${paymentId}/confirm`,
+  autoConfirmPayment: (paymentId) => `/api/payments/${paymentId}/auto-confirm`,
 };
 
 export default API;
