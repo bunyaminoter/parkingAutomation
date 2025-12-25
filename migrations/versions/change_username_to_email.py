@@ -86,3 +86,4 @@ def downgrade() -> None:
         op.alter_column('users', 'email', new_column_name='username', type_=sa.String(length=50))
         op.create_index('ix_users_username', 'users', ['username'], unique=True)
 
+

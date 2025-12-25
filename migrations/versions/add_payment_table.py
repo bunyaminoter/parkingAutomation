@@ -57,3 +57,4 @@ def downgrade() -> None:
     # Enum'ı sil
     sa.Enum(name='paymentstatus').drop(op.get_bind(), checkfirst=True)
 
+

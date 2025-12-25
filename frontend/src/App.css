@@ -87,6 +87,20 @@
   margin-right: 0;
 }
 
+.admin-section-content {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+.admin-dashboard {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
 @media (max-width: 768px) {
   .col-6,
   .col-12 {

@@ -49,3 +49,4 @@ class BarrierService:
         """
         return payment.status == PaymentStatus.PAID
 
+

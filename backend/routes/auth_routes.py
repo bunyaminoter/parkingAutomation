@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 import hashlib
 import secrets
+import logging
+import os
 
 from backend.database import SessionLocal
 from backend import models
@@ -17,6 +19,8 @@ from backend.utils.session_manager import (
 )
 from backend.services.email_service import send_password_reset_email
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["auth"])
 

@@ -6,7 +6,6 @@ import UserPage from "./components/UserPage";
 import SuperAdminPage from "./components/SuperAdminPage";
 import SuperAdminLoginPage from "./components/SuperAdminLoginPage";
 import ResetPasswordPage from "./components/ResetPasswordPage";
-import UpdateUserInfoPage from "./components/UpdateUserInfoPage";
 import "./App.css";
 
 export default function App() {
@@ -20,9 +19,8 @@ export default function App() {
           {/* Üst admin login ve dashboardu */}
           <Route path="/panel-login" element={<SuperAdminLoginPage />} />
           <Route path="/panel" element={<SuperAdminPage />} />
-          {/* Şifre sıfırlama ve kullanıcı bilgileri güncelleme */}
+          {/* Şifre sıfırlama */}
           <Route path="/reset-password" element={<ResetPasswordPage />} />
-          <Route path="/update-user-info" element={<UpdateUserInfoPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>

@@ -149,8 +149,9 @@
   box-shadow: var(--shadow-sm);
   background: var(--color-bg-primary);
   aspect-ratio: 16/9;
-  object-fit: cover;
+  object-fit: contain;
   transition: var(--transition-base);
+  max-height: 400px;
 }
 
 .camera-video:hover {
@@ -302,6 +303,20 @@
   .user-content {
     grid-template-columns: 1fr;
     gap: var(--spacing-lg);
+  }
+}
+
+/* Camera grid layout */
+.camera-upload-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-lg);
+  margin-bottom: var(--spacing-lg);
+}
+
+@media (max-width: 1024px) {
+  .camera-upload-grid {
+    grid-template-columns: 1fr;
   }
 }
 

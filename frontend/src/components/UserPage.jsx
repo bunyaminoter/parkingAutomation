@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import API from "../api";
 import { fetchJSON } from "../utils";
 import PaymentQRModal from "./PaymentQRModal";
+import Sidebar from "./Sidebar";
 import "./UserPage.css";
 
 const AUTO_CAPTURE_INTERVAL = 3000; // ms
@@ -71,6 +72,11 @@ export default function UserPage() {
   const [history, setHistory] = useState([]);
   const [sessionEntries, setSessionEntries] = useState([]);
   const [selectedPayment, setSelectedPayment] = useState(null);
+  const [userInfo, setUserInfo] = useState(null);
+  const [activeSection, setActiveSection] = useState("camera");
+  const [uploadFile, setUploadFile] = useState(null);
+  const [uploadLoading, setUploadLoading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
   const navigate = useNavigate();
 
   // Kamera toggle
@@ -245,161 +251,475 @@ export default function UserPage() {
     navigate("/");
   };
 
-  return (
-    <div className="user-page">
-      <div className="user-header">
-        <h1>Kullanıcı Paneli</h1>
-        <button onClick={handleLogout} className="logout-btn">
-          Çıkış Yap
-        </button>
-      </div>
+  // Dosyadan plaka tanıma
+  const handleFileUpload = async (e) => {
+    e.preventDefault();
+    if (!uploadFile) {
+      setUploadError("Lütfen bir dosya seçin");
+      return;
+    }
 
-      <div className="user-content">
-        <div className="camera-section">
-          <div className="card">
-            <h2>Plaka Tanıma</h2>
-            <button onClick={toggleCamera} className="camera-toggle-btn">
-              {active ? "Kamerayı Kapat" : "Kamerayı Başlat"}
-            </button>
-            {active && (
-              <div className="auto-detect-toggle">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={autoDetect}
-                    onChange={(e) => setAutoDetect(e.target.checked)}
-                  />
-                  Sürekli algılama
-                </label>
-                {autoProcessing && (
-                  <span className="muted">Otomatik algılama çalışıyor...</span>
+    setUploadLoading(true);
+    setUploadError("");
+    setError("");
+    setRecognizedPlate("");
+    setConfidence(0);
+    setHistory([]);
+
+    try {
+      const fd = new FormData();
+      fd.append("file", uploadFile);
+
+      // Plaka tanıma
+      const res = await fetch(API.base + "/api/user/recognize_plate", {
+        method: "POST",
+        body: fd,
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || "Plaka tanıma hatası oluştu");
+      }
+
+      const data = await res.json();
+      setRecognizedPlate(data.plate_number);
+      setConfidence(data.confidence);
+
+      // Giriş/Çıkış işlemini yap ve geçmişi güncelle
+      const entryResult = await registerEntry(data.plate_number, data.confidence);
+      
+      // Eğer çıkış yapıldıysa ve payment varsa QR modal'ı göster
+      if (entryResult && entryResult.action === "exit" && entryResult.payment) {
+        setSelectedPayment(entryResult.payment);
+      }
+      
+      await fetchHistory(data.plate_number);
+
+      // Dosyayı temizle
+      setUploadFile(null);
+      const fileInput = document.getElementById("file-input-upload");
+      if (fileInput) fileInput.value = "";
+    } catch (err) {
+      setUploadError(err.message);
+    } finally {
+      setUploadLoading(false);
+    }
+  };
+
+  const handleSectionChange = (sectionId) => {
+    setActiveSection(sectionId);
+  };
+
+  const sidebarItems = [
+    {
+      id: "camera",
+      key: "camera",
+      label: "Plaka Tanıma",
+      icon: "📷",
+      onClick: () => handleSectionChange("camera")
+    },
+    {
+      id: "session-entries",
+      key: "session-entries",
+      label: "Giriş Yapan Araçlar",
+      icon: "🚗",
+      badge: sessionEntries.length > 0 ? sessionEntries.length.toString() : null,
+      onClick: () => handleSectionChange("session-entries")
+    },
+    {
+      id: "logout",
+      key: "logout",
+      label: "Çıkış Yap",
+      icon: "🚪",
+      danger: true,
+      onClick: handleLogout
+    }
+  ];
+
+  const renderContent = () => {
+    switch (activeSection) {
+      case "camera":
+        return (
+          <div className="admin-section-content">
+            <div className="camera-upload-grid">
+              {/* Kamera Bölümü */}
+              <div className="card">
+                <h2>Kameradan Plaka Tanıma</h2>
+                <button onClick={toggleCamera} className="camera-toggle-btn">
+                  {active ? "Kamerayı Kapat" : "Kamerayı Başlat"}
+                </button>
+                {active && (
+                  <div className="auto-detect-toggle">
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={autoDetect}
+                        onChange={(e) => setAutoDetect(e.target.checked)}
+                      />
+                      Sürekli algılama
+                    </label>
+                    {autoProcessing && (
+                      <span className="muted">Otomatik algılama çalışıyor...</span>
+                    )}
+                  </div>
                 )}
-              </div>
-            )}
 
-            {error && <div className="error-message">{error}</div>}
+                {error && <div className="error-message">{error}</div>}
 
-            {active && (
-              <>
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  className="camera-video"
-                />
-                <div className="capture-section">
-                  <button
-                    onClick={() => captureAndRecognize(false)}
-                    disabled={loading}
-                    className="capture-btn"
-                  >
-                    {loading ? "Tanınıyor..." : "Fotoğraf Çek ve Plaka Tanı"}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-
-        <div className="result-section">
-          <div className="card">
-            <h2>Tanıma Sonucu</h2>
-            {recognizedPlate ? (
-              <div className="result-success">
-                <div className="plate-number">
-                  <span className="label">Plaka:</span>
-                  <span className="value">{recognizedPlate}</span>
-                </div>
-                <div className="confidence">
-                  <span className="label">Güven:</span>
-                  <span className="value">%{(confidence * 100).toFixed(1)}</span>
-                </div>
-
-                {/* --- SADECE ÇIKIŞ YAPAN ARAÇLAR İÇİN FATURA --- */}
-                {history.length > 0 && (
-                   <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'center' }}>
-                     <InvoiceTicket record={history[0]} />
-                   </div>
-                )}
-                {/* ----------------------------------------------- */}
-
-                <div className="history">
-                  <h3>Geçmiş Kayıtlar</h3>
-                  {history.length === 0 ? (
-                    <p className="muted" style={{ textAlign: "center", padding: "20px" }}>
-                      Bu plaka için geçmiş kayıt bulunamadı.
-                    </p>
-                  ) : (
-                    <ul className="history-list">
-                      {history.map((r) => (
-                        <li key={r.id}>
-                          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                              <span style={{ fontWeight: "600", color: "var(--color-text-primary)", fontSize: "0.875rem" }}>
-                                Giriş: {r.entry_time
-                                  ? r.entry_time.replace("T", " ").slice(0, 19)
-                                  : "-"}
-                              </span>
-                              {r.exit_time && (
-                                <span style={{ fontWeight: "600", color: "var(--color-text-primary)", fontSize: "0.875rem" }}>
-                                  Çıkış: {r.exit_time.replace("T", " ").slice(0, 19)}
-                                </span>
-                              )}
-                            </div>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                              <span style={{
-                                fontSize: "0.75rem",
-                                color: "var(--color-text-muted)",
-                                padding: "4px 8px",
-                                background: r.exit_time ? "var(--color-bg-secondary)" : "#d1fae5",
-                                borderRadius: "4px",
-                                fontWeight: "500"
-                              }}>
-                                {r.exit_time ? "Tamamlandı" : "Aktif"}
-                              </span>
-                              <span style={{ fontWeight: "700", color: "var(--color-primary)", fontSize: "1rem" }}>
-                                {typeof r.fee === "number"
-                                  ? `${r.fee.toFixed(2)} ₺`
-                                  : "-"}
-                              </span>
-                            </div>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="result-placeholder">
-                <p>Plaka tanımak için kamerayı başlatın ve fotoğraf çekin</p>
-              </div>
-            )}
-          </div>
-
-          <div className="card">
-            <h2>Giriş Yapan Araçlar (Bu Oturum)</h2>
-            {sessionEntries.length === 0 ? (
-              <p className="muted" style={{ textAlign: "center", padding: "20px" }}>
-                Henüz giriş yapan araç yok.
-              </p>
-            ) : (
-              <ul className="history-list">
-                {sessionEntries.map((e, idx) => (
-                  <li key={`${e.plate_number}-${e.time}-${idx}`}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span style={{ fontWeight: "700", fontSize: "1rem", letterSpacing: "1px", color: "var(--color-primary)", fontFamily: "monospace" }}>
-                        {e.plate_number}
-                      </span>
-                      <span style={{ fontSize: "0.875rem", color: "var(--color-text-secondary)" }}>
-                        {e.time.replace("T", " ").slice(0, 19)}
-                      </span>
+                {active && (
+                  <>
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      className="camera-video"
+                    />
+                    <div className="capture-section">
+                      <button
+                        onClick={() => captureAndRecognize(false)}
+                        disabled={loading}
+                        className="capture-btn"
+                      >
+                        {loading ? "Tanınıyor..." : "Fotoğraf Çek ve Plaka Tanı"}
+                      </button>
                     </div>
-                  </li>
-                ))}
-              </ul>
+                  </>
+                )}
+              </div>
+
+              {/* Dosyadan Yükleme Bölümü */}
+              <div className="card">
+                <h2>Dosyadan Plaka Tanıma</h2>
+                <form onSubmit={handleFileUpload}>
+                  <div className="form-group">
+                    <label htmlFor="file-input-upload">Resim Dosyası</label>
+                    <input
+                      id="file-input-upload"
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                      disabled={uploadLoading}
+                    />
+                    {uploadFile && (
+                      <div style={{ 
+                        marginTop: "8px", 
+                        fontSize: "0.875rem", 
+                        color: "var(--color-text-secondary)",
+                        padding: "8px 12px",
+                        background: "var(--color-bg-secondary)",
+                        borderRadius: "var(--radius-sm)",
+                        border: "1px solid var(--color-border)"
+                      }}>
+                        Seçilen: <strong>{uploadFile.name}</strong> ({(uploadFile.size / 1024).toFixed(2)} KB)
+                      </div>
+                    )}
+                  </div>
+                  <button type="submit" disabled={!uploadFile || uploadLoading} style={{ width: "100%" }}>
+                    {uploadLoading ? (
+                      <>
+                        <span className="loading-spinner"></span>
+                        Tanınıyor...
+                      </>
+                    ) : (
+                      "Yükle ve Plaka Tanı"
+                    )}
+                  </button>
+                  {uploadError && <div className="error-message">{uploadError}</div>}
+                </form>
+              </div>
+            </div>
+
+            {/* Tanıma Sonucu */}
+            {recognizedPlate && (
+              <div className="card">
+                <h2>Tanıma Sonucu</h2>
+                <div className="result-success">
+                  <div className="plate-number">
+                    <span className="label">Plaka:</span>
+                    <span className="value">{recognizedPlate}</span>
+                  </div>
+                  <div className="confidence">
+                    <span className="label">Güven:</span>
+                    <span className="value">%{(confidence * 100).toFixed(1)}</span>
+                  </div>
+
+                  {/* --- SADECE ÇIKIŞ YAPAN ARAÇLAR İÇİN FATURA --- */}
+                  {history.length > 0 && history[0]?.exit_time && (
+                    <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'center' }}>
+                      <InvoiceTicket record={history[0]} />
+                    </div>
+                  )}
+                  {/* ----------------------------------------------- */}
+                </div>
+              </div>
+            )}
+
+            {/* Geçmiş Kayıtlar */}
+            {recognizedPlate && (
+              <div className="card">
+                <h2>Geçmiş Kayıtlar - {recognizedPlate}</h2>
+                {history.length === 0 ? (
+                  <p className="muted" style={{ textAlign: "center", padding: "20px" }}>
+                    Bu plaka için geçmiş kayıt bulunamadı.
+                  </p>
+                ) : (
+                  <ul className="history-list">
+                    {history.map((r) => (
+                      <li key={r.id}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span style={{ fontWeight: "600", color: "var(--color-text-primary)", fontSize: "0.875rem" }}>
+                              Giriş: {r.entry_time
+                                ? r.entry_time.replace("T", " ").slice(0, 19)
+                                : "-"}
+                            </span>
+                            {r.exit_time && (
+                              <span style={{ fontWeight: "600", color: "var(--color-text-primary)", fontSize: "0.875rem" }}>
+                                Çıkış: {r.exit_time.replace("T", " ").slice(0, 19)}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span style={{
+                              fontSize: "0.75rem",
+                              color: "var(--color-text-muted)",
+                              padding: "4px 8px",
+                              background: r.exit_time ? "var(--color-bg-secondary)" : "#d1fae5",
+                              borderRadius: "4px",
+                              fontWeight: "500"
+                            }}>
+                              {r.exit_time ? "Tamamlandı" : "Aktif"}
+                            </span>
+                            <span style={{ fontWeight: "700", color: "var(--color-primary)", fontSize: "1rem" }}>
+                              {typeof r.fee === "number"
+                                ? `${r.fee.toFixed(2)} ₺`
+                                : "-"}
+                            </span>
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             )}
           </div>
+        );
+      case "session-entries":
+        return (
+          <div className="admin-section-content">
+            <div className="card">
+              <h2>Giriş Yapan Araçlar (Bu Oturum)</h2>
+              {sessionEntries.length === 0 ? (
+                <p className="muted" style={{ textAlign: "center", padding: "20px" }}>
+                  Henüz giriş yapan araç yok.
+                </p>
+              ) : (
+                <ul className="history-list">
+                  {sessionEntries.map((e, idx) => (
+                    <li key={`${e.plate_number}-${e.time}-${idx}`}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontWeight: "700", fontSize: "1rem", letterSpacing: "1px", color: "var(--color-primary)", fontFamily: "monospace" }}>
+                          {e.plate_number}
+                        </span>
+                        <span style={{ fontSize: "0.875rem", color: "var(--color-text-secondary)" }}>
+                          {e.time.replace("T", " ").slice(0, 19)}
+                        </span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        );
+      default:
+        return (
+          <div className="admin-section-content">
+            <div className="camera-upload-grid">
+              {/* Kamera Bölümü */}
+              <div className="card">
+                <h2>Kameradan Plaka Tanıma</h2>
+                <button onClick={toggleCamera} className="camera-toggle-btn">
+                  {active ? "Kamerayı Kapat" : "Kamerayı Başlat"}
+                </button>
+                {active && (
+                  <div className="auto-detect-toggle">
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={autoDetect}
+                        onChange={(e) => setAutoDetect(e.target.checked)}
+                      />
+                      Sürekli algılama
+                    </label>
+                    {autoProcessing && (
+                      <span className="muted">Otomatik algılama çalışıyor...</span>
+                    )}
+                  </div>
+                )}
+
+                {error && <div className="error-message">{error}</div>}
+
+                {active && (
+                  <>
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      className="camera-video"
+                    />
+                    <div className="capture-section">
+                      <button
+                        onClick={() => captureAndRecognize(false)}
+                        disabled={loading}
+                        className="capture-btn"
+                      >
+                        {loading ? "Tanınıyor..." : "Fotoğraf Çek ve Plaka Tanı"}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Dosyadan Yükleme Bölümü */}
+              <div className="card">
+                <h2>Dosyadan Plaka Tanıma</h2>
+                <form onSubmit={handleFileUpload}>
+                  <div className="form-group">
+                    <label htmlFor="file-input-upload-default">Resim Dosyası</label>
+                    <input
+                      id="file-input-upload"
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                      disabled={uploadLoading}
+                    />
+                    {uploadFile && (
+                      <div style={{ 
+                        marginTop: "8px", 
+                        fontSize: "0.875rem", 
+                        color: "var(--color-text-secondary)",
+                        padding: "8px 12px",
+                        background: "var(--color-bg-secondary)",
+                        borderRadius: "var(--radius-sm)",
+                        border: "1px solid var(--color-border)"
+                      }}>
+                        Seçilen: <strong>{uploadFile.name}</strong> ({(uploadFile.size / 1024).toFixed(2)} KB)
+                      </div>
+                    )}
+                  </div>
+                  <button type="submit" disabled={!uploadFile || uploadLoading} style={{ width: "100%" }}>
+                    {uploadLoading ? (
+                      <>
+                        <span className="loading-spinner"></span>
+                        Tanınıyor...
+                      </>
+                    ) : (
+                      "Yükle ve Plaka Tanı"
+                    )}
+                  </button>
+                  {uploadError && <div className="error-message">{uploadError}</div>}
+                </form>
+              </div>
+            </div>
+
+            {/* Tanıma Sonucu */}
+            {recognizedPlate && (
+              <div className="card">
+                <h2>Tanıma Sonucu</h2>
+                <div className="result-success">
+                  <div className="plate-number">
+                    <span className="label">Plaka:</span>
+                    <span className="value">{recognizedPlate}</span>
+                  </div>
+                  <div className="confidence">
+                    <span className="label">Güven:</span>
+                    <span className="value">%{(confidence * 100).toFixed(1)}</span>
+                  </div>
+
+                  {/* --- SADECE ÇIKIŞ YAPAN ARAÇLAR İÇİN FATURA --- */}
+                  {history.length > 0 && history[0]?.exit_time && (
+                    <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'center' }}>
+                      <InvoiceTicket record={history[0]} />
+                    </div>
+                  )}
+                  {/* ----------------------------------------------- */}
+                </div>
+              </div>
+            )}
+
+            {/* Geçmiş Kayıtlar */}
+            {recognizedPlate && (
+              <div className="card">
+                <h2>Geçmiş Kayıtlar - {recognizedPlate}</h2>
+                {history.length === 0 ? (
+                  <p className="muted" style={{ textAlign: "center", padding: "20px" }}>
+                    Bu plaka için geçmiş kayıt bulunamadı.
+                  </p>
+                ) : (
+                  <ul className="history-list">
+                    {history.map((r) => (
+                      <li key={r.id}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span style={{ fontWeight: "600", color: "var(--color-text-primary)", fontSize: "0.875rem" }}>
+                              Giriş: {r.entry_time
+                                ? r.entry_time.replace("T", " ").slice(0, 19)
+                                : "-"}
+                            </span>
+                            {r.exit_time && (
+                              <span style={{ fontWeight: "600", color: "var(--color-text-primary)", fontSize: "0.875rem" }}>
+                                Çıkış: {r.exit_time.replace("T", " ").slice(0, 19)}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span style={{
+                              fontSize: "0.75rem",
+                              color: "var(--color-text-muted)",
+                              padding: "4px 8px",
+                              background: r.exit_time ? "var(--color-bg-secondary)" : "#d1fae5",
+                              borderRadius: "4px",
+                              fontWeight: "500"
+                            }}>
+                              {r.exit_time ? "Tamamlandı" : "Aktif"}
+                            </span>
+                            <span style={{ fontWeight: "700", color: "var(--color-primary)", fontSize: "1rem" }}>
+                              {typeof r.fee === "number"
+                                ? `${r.fee.toFixed(2)} ₺`
+                                : "-"}
+                            </span>
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+        );
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", minHeight: "100vh" }}>
+      <Sidebar 
+        items={sidebarItems}
+        activeItem={activeSection}
+        userInfo={userInfo}
+        cameraStatus={{
+          active: active,
+          autoDetect: autoDetect
+        }}
+      />
+      <div className="main-content" style={{ flex: 1, width: "100%" }}>
+        <div className="container">
+          <div className="admin-header">
+            <h1>Kullanıcı Paneli</h1>
+          </div>
+          {renderContent()}
         </div>
       </div>
       
